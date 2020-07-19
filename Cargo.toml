@@ -1,0 +1,26 @@
+[package]
+name = "glennbot"
+version = "0.1.0"
+authors = ["Jack Michaud <mrmichaud42@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+reqwest = "0.9.18"
+tokio = {version = "0.2.21", features = ["full"]}
+dotenv = "*"
+serde = "*"
+serde_json = "*"
+serde_repr = "0.1"
+env_logger = "*"
+log = "*"
+tokio-tungstenite = { version = "*", features = ["tls"]}
+url = "*"
+futures-util = "*"
+regex = "1"
+
+# For enum iteration. Basically just for tests
+strum = "0.18.0"
+strum_macros = "0.18.0"
+
