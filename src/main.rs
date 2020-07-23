@@ -22,8 +22,6 @@ pub mod http;
 pub mod gateway;
 pub mod controller;
 
-use tokio::time::delay_for;
-use std::time::Duration;
 
 pub struct DiscordContext {
     /// The current bot user
@@ -63,24 +61,45 @@ async fn main() {
         }
     });
 
-    let mut gw = gateway::GatewayClient::new(token);
-    gw.start().await.expect("Could not start bot :(");
     // Load config and start to listen
     let mut config_string = String::new();
     File::open("./config.json").expect("Could not open config").read_to_string(&mut config_string).expect("Could not read config");
 
     let config = serde_json::de::from_str::<controller::ConfigSchema>(config_string.as_str()).expect("Could not parse config");
 
-    let context = DiscordContext {
+    let mut context = DiscordContext {
         guild_map,
         me,
         http_client: discord
     };
     let controller = controller::Controller::new(config);
-    tokio::spawn(async move {
+
+
+    loop {
+        let mut gw = gateway::GatewayClient::new(token.clone());
+        gw.start().await.expect("Could not start bot :(");
         loop {
             if let Some(msg) = gw.next().await {
-                controller.handle_event(&context, msg);
+                if let Some(payload) = msg.d.as_ref() {
+                    match payload {
+                        gateway::GatewayMessageType::Reconnect(_) => {
+                            break;
+                        },
+                        gateway::GatewayMessageType::GuildCreate(guild) => {
+                            let guild_in_map = context.guild_map.get_mut(&guild.id);
+                            match guild_in_map {
+                                Some(guild_in_map) => {
+                                    *guild_in_map = guild.to_owned();
+                                },
+                                None => {
+                                    context.guild_map.insert(guild.id.clone(), guild.clone());
+                                }
+                            }
+                        },
+                        _ => {}
+                    }
+                }
+                controller.handle_event(&context, msg).await;
                 //match msg {
                 //    gateway::GatewayMessageType::READY(ready) => {
                 //        info!("READY: {}", ready.d.unwrap().user.username);
@@ -92,8 +111,5 @@ async fn main() {
                 //}
             }
         }
-    });
-    loop {
-        delay_for(Duration::from_secs(5)).await;
     }
 }

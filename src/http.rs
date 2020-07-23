@@ -12,14 +12,17 @@ const BASE: &'static str = "https://discord.com/api/v7";
 pub struct Route {
     path: &'static str,
     pub method: Method,
-    channel_id: Option<String>,
-    guild_id: Option<String>,
+    meta: RouteInner
 }
+
+#[derive(Clone)]
 struct RouteInner {
     path: Option<&'static str>,
     pub method: Option<Method>,
     channel_id: Option<String>,
     guild_id: Option<String>,
+    message_id: Option<String>,
+    emoji: Option<String>,
 }
 
 
@@ -33,7 +36,9 @@ impl Route {
                 path: None,
                 method: None,
                 channel_id: None,
-                guild_id: None
+                guild_id: None,
+                message_id: None,
+                emoji: None
             }
         }
     }
@@ -56,6 +61,14 @@ impl RouteBuilder {
         self.inner.channel_id = Some(channel_id);
         self
     }
+    pub fn message_id(mut self, message_id: String) -> Self {
+        self.inner.message_id = Some(message_id);
+        self
+    }
+    pub fn emoji(mut self, emoji: String) -> Self {
+        self.inner.emoji = Some(emoji);
+        self
+    }
     pub fn build(self) -> Route {
         if let None = self.inner.method {
             panic!("Must provide .method() to builder")
@@ -63,11 +76,12 @@ impl RouteBuilder {
         if let None = self.inner.path {
             panic!("Must provide .path() to builder")
         }
+        let path = self.inner.path.clone().unwrap();
+        let method = self.inner.method.clone().unwrap();
         Route {
-            channel_id: self.inner.channel_id,
-            guild_id: self.inner.guild_id,
-            method: self.inner.method.unwrap(),
-            path: self.inner.path.unwrap(),
+            meta: self.inner,
+            method,
+            path
         }
     }
 }
@@ -78,11 +92,17 @@ impl Into<Url> for Route {
             BASE,
             self.path
         ));
-        if let Some(guild_id) = self.guild_id {
+        if let Some(guild_id) = self.meta.guild_id {
             before_subst = before_subst.replace("{guild_id}", guild_id.as_str());
         }
-        if let Some(channel_id) = self.channel_id {
+        if let Some(channel_id) = self.meta.channel_id {
             before_subst = before_subst.replace("{channel_id}", channel_id.as_str());
+        }
+        if let Some(emoji) = self.meta.emoji {
+            before_subst = before_subst.replace("{emoji}", emoji.as_str());
+        }
+        if let Some(message_id) = self.meta.message_id {
+            before_subst = before_subst.replace("{message_id}", message_id.as_str());
         }
         let url = before_subst.as_str();
         debug!("{}", url);
@@ -117,6 +137,11 @@ impl HttpClient {
             );
         }
         debug!("{:?}", headers);
+
+        if let None = payload {
+            headers.insert("Content-Length", HeaderValue::from_str("0").unwrap());
+        }
+
         let mut request = self.client.request::<Url>(route.method.clone(), route.into());
         request = request.headers(headers);
         if let Some(payload) = payload {
@@ -217,6 +242,16 @@ impl HttpClient {
                 content,
                 tts: false
             }))
+    }
+
+    pub fn create_reaction(&self, channel_id: String, message_id: String, emoji: String) -> Result<(), Error> {
+        self.request_and_parse::<(), ()>(Route::new()
+            .path("/channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me")
+            .method(Method::PUT)
+            .channel_id(channel_id)
+            .emoji(emoji)
+            .message_id(message_id)
+            .build(), None)
     }
 }
 

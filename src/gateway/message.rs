@@ -1,9 +1,13 @@
-use serde::{Serialize, Deserialize};
+use log::*;
+use std::fmt;
+use std::default::Default;
+use serde::{Serialize, Deserialize, Deserializer};
+use serde::de::{Visitor, MapAccess};
 use serde_json::{ser, de};
 use strum_macros::{EnumIter};
 use crate::discord;
 use serde_repr::*;
-
+use strum::IntoEnumIterator;
 //#[allow(non_camel_case_types)]
 //enum GatewayEventName {
 //    // GUILDS (1 << 0)
@@ -108,40 +112,169 @@ pub enum GatewayOpcode {
 pub trait GatewayPayload<'a>: Serialize + Deserialize<'a> + Clone {}
 
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Null {}
-impl<'a> GatewayPayload<'a> for Null {}
-
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize)]
 pub struct GatewayMessage {
     /// Opcode for the payload
     pub op: GatewayOpcode,
     /// JSON payload
     pub d: Option<GatewayMessageType>,
     /// Sequence number
-    pub s: Option<i32>, 
+    pub s: Option<u64>, 
     /// Event Name
     pub t: Option<String>
 }
 
-//#[derive(Clone, Serialize, Deserialize, EnumIter)]
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(untagged)]
+impl<'de> Deserialize<'de> for GatewayMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where D: Deserializer<'de> 
+    {
+        deserializer.deserialize_map(GatewayMessageVisitor::new())
+    }
+}
+
+struct GatewayMessageVisitor;
+impl GatewayMessageVisitor {
+    fn new() -> Self {
+        GatewayMessageVisitor {}
+    }
+}
+impl<'de> Visitor<'de> for GatewayMessageVisitor {
+    type Value = GatewayMessage;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        let string: &'static str = "gateway message from discord";
+        formatter.write_str(string)
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where A: MapAccess<'de> 
+    {
+        let mut op: Option<GatewayOpcode> = None;
+        let mut d_str: Option<String> = None;
+        let mut d: Option<GatewayMessageType> = None;
+        let mut s: Option<u64> = None;
+        let mut t: Option<String> = None;
+
+        while let Some((key, value)) = map.next_entry::<String, serde_json::Value>()? {
+            if key == "op" {
+                op = Some(de::from_str::<GatewayOpcode>(value.to_string().as_str()).unwrap());
+            }
+            if key == "d" {
+                if !value.is_null() {
+                    d_str = Some(value.to_string());
+                }
+            }
+            if key == "t" {
+                if !value.is_null() {
+                    t = Some(value.to_string());
+                }
+            }
+            if key == "s" {
+                if !value.is_null() {
+                    s = Some(value.as_u64().unwrap());
+                }
+            }
+        }
+        if let None = op {
+            panic!("Could not find opcode");
+        }
+
+        // Deserialize GatewayMessage Payload (d)
+        match op.clone().unwrap() {
+            GatewayOpcode::Dispatch => {
+                let d_str = d_str.unwrap();
+                match &t.clone().expect("Message type is none in dispatch type")[..] {
+                    "\"HELLO\"" => {
+                        d = Some(GatewayMessageType::Hello(de::from_str::<HelloPayload>(d_str.as_str()).unwrap()));
+                    },
+                    "\"MESSAGE_CREATE\"" => {
+                        d = Some(GatewayMessageType::MessageCreate(de::from_str::<discord::Message>(d_str.as_str()).unwrap()));
+                    },
+                    "\"GUILD_CREATE\"" => {
+                        d = Some(GatewayMessageType::GuildCreate(de::from_str::<discord::Guild>(d_str.as_str()).unwrap()));
+                    },
+                    "\"READY\"" => {
+                        d = Some(GatewayMessageType::Ready(de::from_str::<discord::Ready>(d_str.as_str()).unwrap()));
+                    },
+                    _ => {
+                        debug!("Unhandled event... {}", t.clone().unwrap());
+                    }
+                }
+            },
+            // No payload in Heartbeat
+            GatewayOpcode::Heartbeat => {
+                d = Some(GatewayMessageType::Heartbeat(()))
+            },
+            GatewayOpcode::Reconnect => {
+                d = Some(GatewayMessageType::Reconnect(()))
+            },
+            GatewayOpcode::InvalidSession => {
+                d = Some(
+                    GatewayMessageType::InvalidSession(
+                        de::from_str::<bool>(d_str.unwrap().as_str()).unwrap()
+                    )
+                );
+            },
+            GatewayOpcode::Hello => {
+                d = Some(
+                    GatewayMessageType::Hello(
+                        de::from_str::<HelloPayload>(d_str.unwrap().as_str()).unwrap()
+                    )
+                )
+            },
+            GatewayOpcode::HeartbeatAck => {
+                d = Some(GatewayMessageType::HeartbeatAck(()));
+            }
+            // The rest is a catch all for the other opcodes
+            _ => {}
+        };
+
+        Ok(GatewayMessage {
+            op: op.unwrap(),
+            d,
+            s,
+            t
+        })
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, EnumIter)]
 //#[serde(tag = "t")]
-#[allow(non_camel_case_types)]
 pub enum GatewayMessageType {
-    MESSAGE_CREATE(discord::Message),
-    GUILD_CREATE(discord::Guild),
-    READY(discord::Ready),
-    IDENTIFY(IdentifyPayload),
-    /// Greeting from the server.
-    HELLO(HelloPayload),
-    HEARTBEAT(Null),
+    MessageCreate(discord::Message),
+    GuildCreate(discord::Guild),
+    Ready(discord::Ready),
+    Hello(HelloPayload),
+    InvalidSession(bool),
+    Reconnect(()),
+    Heartbeat(()),
+    Resumed(()),
+    HeartbeatAck(())
 }
 impl Default for GatewayMessageType {
     fn default() -> Self {
-        GatewayMessageType::HEARTBEAT(Null {})
+        GatewayMessageType::Heartbeat(())
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum GatewayCommandType {
+    Identify(IdentifyPayload),
+    Resume(ResumePayload),
+    Heartbeat(()),
+    RequestGuildMembers(GuildRequestPayload),
+
+    /// Hack. If we send this message, we'll kill the sender thread
+    Reconnecting(())
+}
+
+
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GatewayCommand {
+    pub d: GatewayCommandType,
+    pub op: GatewayOpcode
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -156,12 +289,12 @@ pub struct HelloMessage {
     pub t: Option<()>
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Default)]
 pub struct HelloPayload {
     pub heartbeat_interval: u64
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IdentifyConnectionPropertiesPayload {
     #[serde(rename = "$os")]
     pub os: String,
@@ -171,13 +304,13 @@ pub struct IdentifyConnectionPropertiesPayload {
     pub device: String,
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IdentifyPresenceGamePayload {
     pub name: String,
     #[serde(rename = "type")]
     pub _type: u32
 }
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IdentifyPresencePayload {
     pub game: IdentifyPresenceGamePayload,
     pub status: String,
@@ -185,7 +318,7 @@ pub struct IdentifyPresencePayload {
     pub afk: bool
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct IdentifyPayload {
     pub token: String,
     pub properties: IdentifyConnectionPropertiesPayload,
@@ -194,6 +327,30 @@ pub struct IdentifyPayload {
     pub intents: u32
 }
 impl<'a> GatewayPayload<'a> for IdentifyPayload {}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ResumePayload {
+    pub token: String,
+    pub session_id: String,
+    pub seq: u64
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GuildRequestPayload {
+    /// id of the guild(s) to get members for
+    pub guild_id: Vec<String>,
+    /// string that username starts with, or an empty string to return all members
+    pub query: Option<String>,
+    /// maximum number of members to send matching the query; a limit of 0 
+    /// can be used with an empty string query to return all members	
+    pub limit: u32,
+    /// used to specify if we want the presences of the matched members	
+    pub presences: Option<bool>,
+    /// used to specify which users you wish to fetch
+    pub user_ids: Option<Vec<String>>,
+    /// nonce to identify the Guild Members Chunk response	
+    pub nonce: Option<String>
+}
 
 
 #[cfg(test)]
@@ -219,7 +376,7 @@ mod test {
         let ready = de::from_str::<GatewayMessage>(ready_str).unwrap();
 
         match ready.d.unwrap() {
-            GatewayMessageType::READY(ready) => {
+            GatewayMessageType::Ready(ready) => {
                 assert_eq!(ready.user.username, "GlennLeuteritz");
             },
             _ => panic!("Deserialized incorrectly")
@@ -234,10 +391,12 @@ mod test {
         let message = de::from_str::<GatewayMessage>(message_str).unwrap();
 
         match message.d.unwrap() {
-            GatewayMessageType::MESSAGE_CREATE(msg) => {
+            GatewayMessageType::MessageCreate(msg) => {
                 assert_eq!(msg.content, "aaa");
             },
             _ => panic!("Deserialized incorrectly")
         }
     }
 }
+
+

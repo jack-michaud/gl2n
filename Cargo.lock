@@ -562,6 +562,7 @@ dependencies = [
  "env_logger",
  "futures-util",
  "log",
+ "percent-encoding 1.0.1",
  "regex",
  "reqwest",
  "serde",

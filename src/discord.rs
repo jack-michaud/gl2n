@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_repr::*;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 pub struct Me {
   pub id: String,
   pub username: String,
@@ -16,25 +16,37 @@ pub struct Me {
   pub mfa_enabled: bool
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct Emoji {
+  pub roles: Vec<()>,
+  pub require_colors: Option<bool>,
+  pub name: String,
+  pub managed: bool,
+  pub id: String,
+  pub available: bool,
+  pub animated: bool
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Guild {
     pub id: String,
     pub name: String,
     pub icon: String,
-    pub owner: bool,
-    pub permissions: i32,
+    pub owner: Option<bool>,
+    pub permissions: Option<i32>,
     pub features: Vec<()>,
-    pub permissions_new: String,
-    pub channels: Option<Vec<Channel>>
+    pub permissions_new: Option<String>,
+    pub channels: Option<Vec<Channel>>,
+    pub emojis: Option<Vec<Emoji>>
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct UnavailableGuild {
     pub id: String,
     pub unavailable: bool
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct User {
     pub id: String,
     pub username: String,
@@ -56,7 +68,7 @@ pub struct Member {
     pub nick: Option<String>
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Ready {
     /// Gateway version
     pub v: i32,
@@ -75,7 +87,18 @@ pub struct Ready {
 
 }
 
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct Attachment {
+    pub width: u32,
+    pub height: u32,
+    pub url: String,
+    pub size: u32,
+    pub proxy_url: String,
+    pub id: String,
+    pub filename: String,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Message {
     pub id: String,
     pub channel_id: String,
@@ -90,13 +113,13 @@ pub struct Message {
     pub mentions: Vec<User>,
     //mention_roles: Vec<Role>
     //mention_channels: Vec<ChannelMention>
-    //attachments: Vec<Attachment>
+    pub attachments: Vec<Attachment>
     //embeds: Vec<Embed>
     //reactions: Vec<Reaction>
 }
 
 
-#[derive(Serialize)]
+#[derive(Serialize, Default)]
 pub struct CreateMessagePayload {
     pub content: String,
     pub tts: bool,
@@ -104,7 +127,7 @@ pub struct CreateMessagePayload {
 }
 
 /// https://discord.com/developers/docs/resources/channel#channel-object
-#[derive(Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Channel {
     pub id: String,
     #[serde(rename = "type")]
@@ -145,6 +168,7 @@ pub struct Channel {
 #[repr(u8)]
 #[allow(non_camel_case_types)]
 pub enum ChannelType {
+    INVALID = 10,
     /// a text channel within a server
     GUILD_TEXT = 0,
     /// a direct message between users
@@ -159,4 +183,9 @@ pub enum ChannelType {
     GUILD_NEWS = 5,
     /// a channel in which game developers can sell their game on Discord
     GUILD_STORE = 6,
+}
+impl Default for ChannelType {
+    fn default() -> Self {
+        ChannelType::INVALID
+    }
 }

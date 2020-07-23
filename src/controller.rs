@@ -2,6 +2,7 @@
 /// come in.
 ///
 use regex::Regex;
+use percent_encoding::{DEFAULT_ENCODE_SET, percent_encode};
 use log::*;
 use reqwest::header::{AUTHORIZATION};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
@@ -9,10 +10,10 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use serde_repr::*;
-use std::sync::Arc;
 
-use crate::http;
-use crate::discord;
+use tokio::time::delay_for;
+use std::time::Duration;
+
 use crate::gateway;
 
 use crate::DiscordContext;
@@ -30,6 +31,9 @@ pub enum SupportedGatewayMessages {
     IDENTIFY,
     HEARTBEAT,
     MESSAGE_CREATE,
+    HELLO,
+
+    OTHER
 }
 
 
@@ -44,12 +48,18 @@ pub struct WebhookOptions {
 pub struct EchoOptions {
     text: String
 }
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ReactOptions {
+    emojis: Vec<String>,
+    customEmojis: Vec<String>
+}
 
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "options")]
 pub enum Action {
     Webhook(WebhookOptions),
-    Echo(EchoOptions)
+    Echo(EchoOptions),
+    React(ReactOptions)
 }
 
 pub trait Filter {
@@ -67,12 +77,14 @@ pub struct MessageCreateFilter {
     /// Channel name regex
     pub channel_name: Option<String>,
     /// Username regex (include # or not)
-    pub username: Option<String>
+    pub username: Option<String>,
+    /// Are there image attachments?
+    pub attachments: Option<bool>
 }
 impl Filter for MessageCreateFilter {
     fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
         match msg.d.clone().unwrap() {
-            gateway::GatewayMessageType::MESSAGE_CREATE(msg) => {
+            gateway::GatewayMessageType::MessageCreate(msg) => {
                 if context.me.id == msg.author.id {
                     return false;
                 }
@@ -85,9 +97,25 @@ impl Filter for MessageCreateFilter {
                 }
                 // Check message content
                 let content = msg.content;
-                if !regex_match(&self.content.clone().unwrap(), &content) {
-                    return false;
+                if let Some(re_content) = &self.content {
+                    if !regex_match(&re_content, &content) {
+                        return false;
+                    }
                 }
+                // Check if there is an attachment
+                if let Some(attachments) = &self.attachments {
+                    let count = msg.attachments.len();
+                    if *attachments {
+                        if count == 0 {
+                            return false;
+                        }
+                    } else {
+                        if count > 0 {
+                            return false;
+                        }
+                    }
+                }
+
                 // Check channel_name
                 if let Some(searched_channel_name) = self.channel_name.as_ref() {
                     if let Some(channels) = context.guild_map.get(&msg.guild_id.clone().unwrap()).unwrap().channels.as_ref() {
@@ -136,12 +164,16 @@ pub enum RuleVariant {
 #[allow(unreachable_patterns)]
 fn event_convert<'a>(msg: gateway::GatewayMessageType) -> SupportedGatewayMessages  {
     match msg {
-        gateway::GatewayMessageType::GUILD_CREATE(_) => SupportedGatewayMessages::GUILD_CREATE,
-        gateway::GatewayMessageType::READY(_) => SupportedGatewayMessages::READY,
-        gateway::GatewayMessageType::IDENTIFY(_) => SupportedGatewayMessages::IDENTIFY,
-        gateway::GatewayMessageType::HEARTBEAT(_) => SupportedGatewayMessages::HEARTBEAT,
-        gateway::GatewayMessageType::MESSAGE_CREATE(_) => SupportedGatewayMessages::MESSAGE_CREATE,
-        _ => panic!("Unsupported event")
+        gateway::GatewayMessageType::GuildCreate(_) => SupportedGatewayMessages::GUILD_CREATE,
+        gateway::GatewayMessageType::Ready(_) => SupportedGatewayMessages::READY,
+        gateway::GatewayMessageType::MessageCreate(_) => SupportedGatewayMessages::MESSAGE_CREATE,
+        gateway::GatewayMessageType::Hello(_) => SupportedGatewayMessages::HELLO,
+        gateway::GatewayMessageType::InvalidSession(_) => SupportedGatewayMessages::OTHER,
+        gateway::GatewayMessageType::Reconnect(_) => SupportedGatewayMessages::OTHER,
+        gateway::GatewayMessageType::Heartbeat(_) => SupportedGatewayMessages::OTHER,
+        gateway::GatewayMessageType::Resumed(_) => SupportedGatewayMessages::OTHER,
+        gateway::GatewayMessageType::HeartbeatAck(_) => SupportedGatewayMessages::OTHER,
+        _ => panic!("Unsupported event in controller")
     }
 }
 
@@ -153,7 +185,7 @@ impl Controller {
         let mut event_map = HashMap::<SupportedGatewayMessages, Vec<RuleVariant>>::new();
         for rule in schema.rules {
             let event_type = match rule.clone() {
-                RuleVariant::MESSAGE_CREATE(concrete_rule) => {
+                RuleVariant::MESSAGE_CREATE(_) => {
                     info!("Found MESSAGE_CREATE rule");
                     SupportedGatewayMessages::MESSAGE_CREATE
                 }
@@ -170,7 +202,7 @@ impl Controller {
         }
     }
 
-    pub fn handle_event(&self, context: &DiscordContext, gateway_message: gateway::GatewayMessage) -> () {
+    pub async fn handle_event(&self, context: &DiscordContext, gateway_message: gateway::GatewayMessage) -> () {
         if let Some(payload) = gateway_message.d.clone() {
             let event_type = event_convert(payload.clone());
             if let Some(rules) = self.event_map.get(&event_type) {
@@ -189,9 +221,39 @@ impl Controller {
                                         .send();
                                     },
                                 Action::Echo(options) => {
-                                    if let gateway::GatewayMessageType::MESSAGE_CREATE(msg) = payload.clone() {
+                                    if let gateway::GatewayMessageType::MessageCreate(msg) = payload.clone() {
                                         context.http_client.create_message(msg.channel_id, options.text);
                                     };
+                                },
+                                Action::React(options) => {
+                                    if let gateway::GatewayMessageType::MessageCreate(msg) = payload.clone() {
+                                        for emoji in options.emojis {
+                                            context.http_client.create_reaction(
+                                                msg.channel_id.clone(),
+                                                msg.id.clone(),
+                                                percent_encode(emoji.as_bytes(), DEFAULT_ENCODE_SET).collect::<String>()
+                                            );
+                                            delay_for(Duration::from_millis(500)).await;
+                                        }
+                                        for emoji in options.customEmojis {
+                                            let guild = context.guild_map.get(msg.guild_id.as_ref().unwrap()).unwrap();
+                                            // Search guild emojis
+                                            if let Some(emojis) = guild.emojis.as_ref() {
+                                                debug!("Getting guild emojis...{}", emoji);
+                                                for searching_emoji in emojis {
+                                                    debug!("Searching {}", searching_emoji.name);
+                                                    if searching_emoji.name == emoji {
+                                                        context.http_client.create_reaction(
+                                                            msg.channel_id.clone(),
+                                                            msg.id.clone(),
+                                                            format!("{}:{}", searching_emoji.name, searching_emoji.id)
+                                                        );
+                                                        delay_for(Duration::from_millis(500)).await;
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -211,7 +273,10 @@ mod test {
         let config = ConfigSchema {
             rules: vec![RuleVariant::MESSAGE_CREATE(Rule {
                 filters: MessageCreateFilter {
-                    content: String::from("test")
+                    content: Some(String::from("test")),
+                    channel_name: None,
+                    username: None,
+                    attachments: None
                 },
                 action: Action::Webhook(WebhookOptions {
                     url: String::from("http://localhost")
@@ -221,16 +286,16 @@ mod test {
 
         assert_eq!(
             serde_json::ser::to_string(&config).unwrap(),
-            "{\"rules\":[{\"event\":\"MESSAGE_CREATE\",\"action\":{\"type\":\"Webhook\",\"options\":{\"url\":\"http://localhost\"}},\"filters\":{\"content\":\"test\"}}]}"
+            r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost"}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}]}"#
         )
     }
 
 
-    //use strum::IntoEnumIterator;
-    //#[test]
-    //fn support_all_gateway_events() {
-    //    for _type in gateway::GatewayMessageType::iter() {
-    //        event_convert(_type);
-    //    }
-    //}
+    use strum::IntoEnumIterator;
+    #[test]
+    fn support_all_gateway_events() {
+        for _type in gateway::GatewayMessageType::iter() {
+            event_convert(_type);
+        }
+    }
 }

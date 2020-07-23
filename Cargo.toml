@@ -24,3 +24,4 @@ regex = "1"
 strum = "0.18.0"
 strum_macros = "0.18.0"
 
+percent-encoding = "*"
