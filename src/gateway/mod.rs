@@ -244,15 +244,7 @@ impl GatewayClient {
         Ok(())
     }
 
-    fn attempt_resume(&mut self) -> Result<(), Box<dyn Error>> {
-        //{
-        //    "op": 6,
-        //    "d": {
-        //        "token": "my_token",
-        //        "session_id": "session_id_i_stored",
-        //        "seq": 1337
-        //    }
-        //}
+    pub fn attempt_resume(&mut self) -> Result<(), Box<dyn Error>> {
         self.gateway_message_tx.send(GatewayCommand {
             op: GatewayOpcode::Resume,
             d: GatewayCommandType::Resume(message::ResumePayload {

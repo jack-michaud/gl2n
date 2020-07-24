@@ -1,6 +1,7 @@
 /// This file governs "IFTTT"-like rules and flow control for events that
 /// come in.
 ///
+use std::error::Error;
 use regex::Regex;
 use percent_encoding::{DEFAULT_ENCODE_SET, percent_encode};
 use log::*;
@@ -18,6 +19,12 @@ use crate::gateway;
 
 use crate::DiscordContext;
 
+mod rules;
+mod actions;
+
+use rules::RuleVariant;
+use actions::{Action, WebhookResponse};
+
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ConfigSchema {
     pub rules: Vec<RuleVariant>
@@ -34,129 +41,6 @@ pub enum SupportedGatewayMessages {
     HELLO,
 
     OTHER
-}
-
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct WebhookOptions {
-    url: String,
-    // TODO Create remote serialize/deserialize definition for headermap
-    //headers: HashMap<HeaderName, String>,
-    //body: HashMap<String, String>
-}
-#[derive(Clone, Serialize, Deserialize)]
-pub struct EchoOptions {
-    text: String
-}
-#[derive(Clone, Serialize, Deserialize)]
-pub struct ReactOptions {
-    emojis: Vec<String>,
-    customEmojis: Vec<String>
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "options")]
-pub enum Action {
-    Webhook(WebhookOptions),
-    Echo(EchoOptions),
-    React(ReactOptions)
-}
-
-pub trait Filter {
-    fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool;
-}
-
-fn regex_match(reg_str: &String, string: &String) -> bool {
-    Regex::new(reg_str.as_str()).unwrap().is_match(string.as_str()) 
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct MessageCreateFilter {
-    /// Message content regex
-    pub content: Option<String>,
-    /// Channel name regex
-    pub channel_name: Option<String>,
-    /// Username regex (include # or not)
-    pub username: Option<String>,
-    /// Are there image attachments?
-    pub attachments: Option<bool>
-}
-impl Filter for MessageCreateFilter {
-    fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
-        match msg.d.clone().unwrap() {
-            gateway::GatewayMessageType::MessageCreate(msg) => {
-                if context.me.id == msg.author.id {
-                    return false;
-                }
-                // check username 
-                let author = format!("{}#{}", msg.author.username, msg.author.discriminator);
-                if let Some(searched_user) = &self.username {
-                    if !regex_match(&searched_user, &author) {
-                        return false
-                    }
-                }
-                // Check message content
-                let content = msg.content;
-                if let Some(re_content) = &self.content {
-                    if !regex_match(&re_content, &content) {
-                        return false;
-                    }
-                }
-                // Check if there is an attachment
-                if let Some(attachments) = &self.attachments {
-                    let count = msg.attachments.len();
-                    if *attachments {
-                        if count == 0 {
-                            return false;
-                        }
-                    } else {
-                        if count > 0 {
-                            return false;
-                        }
-                    }
-                }
-
-                // Check channel_name
-                if let Some(searched_channel_name) = self.channel_name.as_ref() {
-                    if let Some(channels) = context.guild_map.get(&msg.guild_id.clone().unwrap()).unwrap().channels.as_ref() {
-                        for channel in channels {
-                            if channel.id == msg.channel_id {
-                                if let Some(channel_name) = channel.name.as_ref() {
-                                    if !regex_match(&searched_channel_name, channel_name) {
-                                        return false
-                                    }
-                                }
-                                break
-                            }
-                        }
-                    }
-                }
-                true
-            },
-            _ => false
-        }
-    }
-}
-
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Rule<F> {
-    pub action: Action,
-    pub filters: F
-}
-impl<F> Rule<F>
-where F: Filter
-{
-    pub fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
-        self.filters.filter(context, msg)
-    }
-}
-
-
-#[derive(Clone, Serialize, Deserialize)]
-#[allow(non_camel_case_types)]
-#[serde(tag = "event")]
-pub enum RuleVariant {
-    MESSAGE_CREATE(Rule<MessageCreateFilter>)
 }
 
 
@@ -188,8 +72,9 @@ impl Controller {
                 RuleVariant::MESSAGE_CREATE(_) => {
                     info!("Found MESSAGE_CREATE rule");
                     SupportedGatewayMessages::MESSAGE_CREATE
-                }
+                },
             };
+
 
             if let Some(rules) = event_map.get_mut(&event_type) {
                 rules.push(rule);
@@ -216,10 +101,26 @@ impl Controller {
                                 Action::Webhook(options) => {
                                     let client = reqwest::Client::new();
                                     let body = reqwest::Body::from(serde_json::ser::to_string(&gateway_message).unwrap());
+                                    let mut headers: HeaderMap = options.headers.clone();
+                                    headers.insert(HeaderName::from_static("content-type"), HeaderValue::from_static("application/json"));
                                     client.post(options.url.as_str())
+                                        .headers(headers)
                                         .body(body)
-                                        .send();
-                                    },
+                                        .send()
+                                        .map_or(None, |mut res| {
+                                            debug!("Got successful status code");
+                                            res.json::<WebhookResponse>()
+                                                .map_or(None, |webhook_response| {
+                                                    if let Some(msg) = webhook_response.message {
+                                                        if let Some(channel_id) = webhook_response.channel_id {
+                                                            context.http_client.create_message(channel_id, msg);
+                                                        }
+                                                    };
+                                                    Some(())
+                                                });
+                                            Some(res)
+                                        });
+                                },
                                 Action::Echo(options) => {
                                     if let gateway::GatewayMessageType::MessageCreate(msg) = payload.clone() {
                                         context.http_client.create_message(msg.channel_id, options.text);
@@ -267,9 +168,11 @@ impl Controller {
 #[cfg(test)]
 mod test {
     use super::*;
+    use super::rules::*;
+    use super::actions::*;
 
     #[test]
-    fn deserialize_config() {
+    fn serialize_config() {
         let config = ConfigSchema {
             rules: vec![RuleVariant::MESSAGE_CREATE(Rule {
                 filters: MessageCreateFilter {
@@ -279,15 +182,51 @@ mod test {
                     attachments: None
                 },
                 action: Action::Webhook(WebhookOptions {
-                    url: String::from("http://localhost")
+                    url: String::from("http://localhost"),
+                    headers: HeaderMap::new()
                 })
             })]
         };
 
         assert_eq!(
             serde_json::ser::to_string(&config).unwrap(),
-            r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost"}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}]}"#
+            r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost","headers":{}}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}]}"#
         )
+    }
+
+
+    #[test]
+    fn serialize_header_config() {
+        let mut headers = HeaderMap::new();
+        headers.insert(HeaderName::from_static("authorization"), HeaderValue::from_static("jwt"));
+        let config = ConfigSchema {
+            rules: vec![RuleVariant::MESSAGE_CREATE(Rule {
+                filters: MessageCreateFilter {
+                    content: Some(String::from("test")),
+                    channel_name: None,
+                    username: None,
+                    attachments: None
+                },
+                action: Action::Webhook(WebhookOptions {
+                    url: String::from("http://localhost"),
+                    headers
+                })
+            })]
+        };
+
+        assert_eq!(
+            serde_json::ser::to_string(&config).unwrap(),
+            r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost","headers":{"authorization":"jwt"}}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}]}"#
+        )
+    }
+
+    /// Invalid header name
+    #[test]
+    #[should_panic]
+    fn deserialize_invalid_http_header() {
+        let invalid_config = r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost","headers":{"/":"jwt"}}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}]}"#;
+
+        let config = serde_json::de::from_str::<ConfigSchema>(invalid_config);
     }
 
 

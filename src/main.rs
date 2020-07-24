@@ -21,6 +21,7 @@ pub mod discord;
 pub mod http;
 pub mod gateway;
 pub mod controller;
+pub mod rpc;
 
 
 pub struct DiscordContext {
@@ -39,6 +40,11 @@ async fn main() {
     let token = env::var("DISCORD_BOT_TOKEN").expect("Must supply DISCORD_BOT_TOKEN in env");
     let guild_name = env::var("GUILD_NAME").expect("Must supply GUILD_NAME in env");
     let mut guild_map: HashMap<String, discord::Guild> = HashMap::new();
+
+    // Load config
+    let mut config_string = String::new();
+    File::open("./config.json").expect("Could not open config").read_to_string(&mut config_string).expect("Could not read config");
+    let config = serde_json::de::from_str::<controller::ConfigSchema>(config_string.as_str()).expect("Could not parse config");
 
     let discord = http::HttpClient::new(token.clone());
     let me = if let Ok(me) = discord.get_me() {
@@ -61,11 +67,6 @@ async fn main() {
         }
     });
 
-    // Load config and start to listen
-    let mut config_string = String::new();
-    File::open("./config.json").expect("Could not open config").read_to_string(&mut config_string).expect("Could not read config");
-
-    let config = serde_json::de::from_str::<controller::ConfigSchema>(config_string.as_str()).expect("Could not parse config");
 
     let mut context = DiscordContext {
         guild_map,
