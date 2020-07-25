@@ -1,29 +1,18 @@
 /// This file governs "IFTTT"-like rules and flow control for events that
 /// come in.
 ///
-use std::error::Error;
-use regex::Regex;
-use percent_encoding::{DEFAULT_ENCODE_SET, percent_encode};
 use log::*;
-use reqwest::header::{AUTHORIZATION};
-use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
-use serde_json;
-use serde_repr::*;
-
-use tokio::time::delay_for;
-use std::time::Duration;
 
 use crate::gateway;
-
 use crate::DiscordContext;
 
 mod rules;
 mod actions;
 
 use rules::RuleVariant;
-use actions::{Action, WebhookResponse};
+use actions::GatewayMessageHandler;
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct ConfigSchema {
@@ -75,7 +64,6 @@ impl Controller {
                 },
             };
 
-
             if let Some(rules) = event_map.get_mut(&event_type) {
                 rules.push(rule);
             } else {
@@ -92,73 +80,7 @@ impl Controller {
             let event_type = event_convert(payload.clone());
             if let Some(rules) = self.event_map.get(&event_type) {
                 for rule in rules {
-                    match rule {
-                        RuleVariant::MESSAGE_CREATE(rule) => {
-                            if !rule.filter(context, &gateway_message) {
-                                continue;
-                            };
-                            match rule.action.clone() {
-                                Action::Webhook(options) => {
-                                    let client = reqwest::Client::new();
-                                    let body = reqwest::Body::from(serde_json::ser::to_string(&gateway_message).unwrap());
-                                    let mut headers: HeaderMap = options.headers.clone();
-                                    headers.insert(HeaderName::from_static("content-type"), HeaderValue::from_static("application/json"));
-                                    client.post(options.url.as_str())
-                                        .headers(headers)
-                                        .body(body)
-                                        .send()
-                                        .map_or(None, |mut res| {
-                                            debug!("Got successful status code");
-                                            res.json::<WebhookResponse>()
-                                                .map_or(None, |webhook_response| {
-                                                    if let Some(msg) = webhook_response.message {
-                                                        if let Some(channel_id) = webhook_response.channel_id {
-                                                            context.http_client.create_message(channel_id, msg);
-                                                        }
-                                                    };
-                                                    Some(())
-                                                });
-                                            Some(res)
-                                        });
-                                },
-                                Action::Echo(options) => {
-                                    if let gateway::GatewayMessageType::MessageCreate(msg) = payload.clone() {
-                                        context.http_client.create_message(msg.channel_id, options.text);
-                                    };
-                                },
-                                Action::React(options) => {
-                                    if let gateway::GatewayMessageType::MessageCreate(msg) = payload.clone() {
-                                        for emoji in options.emojis {
-                                            context.http_client.create_reaction(
-                                                msg.channel_id.clone(),
-                                                msg.id.clone(),
-                                                percent_encode(emoji.as_bytes(), DEFAULT_ENCODE_SET).collect::<String>()
-                                            );
-                                            delay_for(Duration::from_millis(500)).await;
-                                        }
-                                        for emoji in options.customEmojis {
-                                            let guild = context.guild_map.get(msg.guild_id.as_ref().unwrap()).unwrap();
-                                            // Search guild emojis
-                                            if let Some(emojis) = guild.emojis.as_ref() {
-                                                debug!("Getting guild emojis...{}", emoji);
-                                                for searching_emoji in emojis {
-                                                    debug!("Searching {}", searching_emoji.name);
-                                                    if searching_emoji.name == emoji {
-                                                        context.http_client.create_reaction(
-                                                            msg.channel_id.clone(),
-                                                            msg.id.clone(),
-                                                            format!("{}:{}", searching_emoji.name, searching_emoji.id)
-                                                        );
-                                                        delay_for(Duration::from_millis(500)).await;
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    };
+                    rule.handle(context, &gateway_message);
                 };
             }
         }
@@ -170,6 +92,7 @@ mod test {
     use super::*;
     use super::rules::*;
     use super::actions::*;
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
     #[test]
     fn serialize_config() {

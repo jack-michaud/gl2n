@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize, Serializer};
 use regex::Regex;
 
 
-use crate::controller::actions::Action;
+use crate::controller::actions::{Action, GatewayMessageHandler};
 use crate::DiscordContext;
 use crate::gateway;
 
@@ -10,19 +10,39 @@ use crate::gateway;
 #[allow(non_camel_case_types)]
 #[serde(tag = "event")]
 pub enum RuleVariant {
-    MESSAGE_CREATE(Rule<MessageCreateFilter>)
+    MESSAGE_CREATE(Rule<MessageCreateFilter, Action>)
+}
+
+impl GatewayMessageHandler for RuleVariant {
+    fn handle(&self, context: &DiscordContext, message: &gateway::GatewayMessage) {
+        match self {
+            RuleVariant::MESSAGE_CREATE(rule) => {
+                rule.handle(context, message)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct Rule<F> {
-    pub action: Action,
+pub struct Rule<F, A> {
+    pub action: A,
     pub filters: F
 }
-impl<F> Rule<F>
-where F: Filter
+impl<F, A> Rule<F, A>
+where F: Filter,
+      A: GatewayMessageHandler
 {
-    pub fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
+    fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
         self.filters.filter(context, msg)
+    }
+}
+impl<F, A> GatewayMessageHandler for Rule<F, A>
+where F: Filter,
+      A: GatewayMessageHandler {
+    fn handle(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) {
+        if self.filters.filter(context, msg) {
+            self.action.handle(context, msg);
+        }
     }
 }
 

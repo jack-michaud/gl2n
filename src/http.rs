@@ -9,28 +9,28 @@ use crate::discord;
 
 const BASE: &'static str = "https://discord.com/api/v7";
 
-pub struct Route {
+pub struct Route<'a> {
     path: &'static str,
     pub method: Method,
-    meta: RouteInner
+    meta: Box<RouteInner<'a>>
 }
 
 #[derive(Clone)]
-struct RouteInner {
+struct RouteInner<'a> {
     path: Option<&'static str>,
     pub method: Option<Method>,
-    channel_id: Option<String>,
-    guild_id: Option<String>,
-    message_id: Option<String>,
-    emoji: Option<String>,
+    channel_id: Option<&'a String>,
+    guild_id: Option<&'a String>,
+    message_id: Option<&'a String>,
+    emoji: Option<&'a String>,
 }
 
 
-pub struct RouteBuilder {
-    inner: RouteInner
+pub struct RouteBuilder<'a> {
+    inner: RouteInner<'a>
 }
-impl Route {
-    pub fn new() -> RouteBuilder {
+impl<'a> Route<'a> {
+    pub fn new() -> RouteBuilder<'a> {
         RouteBuilder {
             inner: RouteInner {
                 path: None,
@@ -44,7 +44,7 @@ impl Route {
     }
 }
 
-impl RouteBuilder {
+impl<'a> RouteBuilder<'a> {
     pub fn path(mut self, path: &'static str) -> Self {
         self.inner.path = Some(path);
         self
@@ -53,23 +53,23 @@ impl RouteBuilder {
         self.inner.method = Some(method);
         self
     }
-    pub fn guild_id(mut self, guild_id: String) -> Self {
+    pub fn guild_id(mut self, guild_id: &'a String) -> Self {
         self.inner.guild_id = Some(guild_id);
         self
     }
-    pub fn channel_id(mut self, channel_id: String) -> Self {
+    pub fn channel_id(mut self, channel_id: &'a String) -> Self {
         self.inner.channel_id = Some(channel_id);
         self
     }
-    pub fn message_id(mut self, message_id: String) -> Self {
+    pub fn message_id(mut self, message_id: &'a String) -> Self {
         self.inner.message_id = Some(message_id);
         self
     }
-    pub fn emoji(mut self, emoji: String) -> Self {
+    pub fn emoji(mut self, emoji: &'a String) -> Self {
         self.inner.emoji = Some(emoji);
         self
     }
-    pub fn build(self) -> Route {
+    pub fn build(self) -> Route<'a> {
         if let None = self.inner.method {
             panic!("Must provide .method() to builder")
         }
@@ -79,14 +79,14 @@ impl RouteBuilder {
         let path = self.inner.path.clone().unwrap();
         let method = self.inner.method.clone().unwrap();
         Route {
-            meta: self.inner,
+            meta: Box::new(self.inner),
             method,
             path
         }
     }
 }
 
-impl Into<Url> for Route {
+impl<'a> Into<Url> for Route<'a> {
     fn into(self) -> Url {
         let mut before_subst = String::from(format!("{}{}", 
             BASE,
@@ -203,7 +203,7 @@ impl HttpClient {
         self.request_and_parse::<Vec<discord::Channel>, ()>(Route::new()
             .path("/guilds/{guild_id}/channels")
             .method(Method::GET)
-            .guild_id(guild_id)
+            .guild_id(&guild_id)
             .build(), None)
     }
 
@@ -225,7 +225,7 @@ impl HttpClient {
         }
     }
 
-    pub fn get_members(&self, guild_id: String) -> Result<Vec<discord::Member>, Error> {
+    pub fn get_members(&self, guild_id: &String) -> Result<Vec<discord::Member>, Error> {
         self.request_and_parse::<Vec<discord::Member>, ()>(Route::new()
             .path("/guilds/{guild_id}/members?limit=100")
             .method(Method::GET)
@@ -233,18 +233,18 @@ impl HttpClient {
             .build(), None)
     }
 
-    pub fn create_message(&self, channel_id: String, content: String) -> Result<discord::Message, Error> {
+    pub fn create_message(&self, channel_id: &String, content: &String) -> Result<discord::Message, Error> {
         self.request_and_parse::<discord::Message, discord::CreateMessagePayload>(Route::new()
             .path("/channels/{channel_id}/messages")
             .method(Method::POST)
             .channel_id(channel_id)
             .build(), Some(discord::CreateMessagePayload {
-                content,
+                content: content.to_owned(),
                 tts: false
             }))
     }
 
-    pub fn create_reaction(&self, channel_id: String, message_id: String, emoji: String) -> Result<(), Error> {
+    pub fn create_reaction(&self, channel_id: &String, message_id: &String, emoji: &String) -> Result<(), Error> {
         self.request_and_parse::<(), ()>(Route::new()
             .path("/channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me")
             .method(Method::PUT)
