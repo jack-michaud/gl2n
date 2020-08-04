@@ -80,7 +80,7 @@ impl Controller {
             let event_type = event_convert(payload.clone());
             if let Some(rules) = self.event_map.get(&event_type) {
                 for rule in rules {
-                    rule.handle(context, &gateway_message);
+                    rule.handle(context, &gateway_message).await;
                 };
             }
         }

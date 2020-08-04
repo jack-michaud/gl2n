@@ -1,0 +1,11 @@
+glennbot:
+  build: ./
+  command: /glennbot
+  volumes:
+  - ./config.json:/config.json
+  environment:
+  - DISCORD_CLIENT_ID
+  - DISCORD_CLIENT_SECRET
+  - DISCORD_BOT_TOKEN
+  - GUILD_NAME
+  - RUST_LOG=info

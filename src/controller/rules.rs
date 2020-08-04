@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize, Serializer};
 use regex::Regex;
+use async_trait::async_trait;
 
 
 use crate::controller::actions::{Action, GatewayMessageHandler};
@@ -13,11 +14,12 @@ pub enum RuleVariant {
     MESSAGE_CREATE(Rule<MessageCreateFilter, Action>)
 }
 
+#[async_trait]
 impl GatewayMessageHandler for RuleVariant {
-    fn handle(&self, context: &DiscordContext, message: &gateway::GatewayMessage) {
+    async fn handle(&self, context: &DiscordContext, message: &gateway::GatewayMessage) -> Result<(), String> {
         match self {
             RuleVariant::MESSAGE_CREATE(rule) => {
-                rule.handle(context, message)
+                rule.handle(context, message).await
             }
         }
     }
@@ -36,13 +38,17 @@ where F: Filter,
         self.filters.filter(context, msg)
     }
 }
+
+#[async_trait]
 impl<F, A> GatewayMessageHandler for Rule<F, A>
-where F: Filter,
-      A: GatewayMessageHandler {
-    fn handle(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) {
-        if self.filters.filter(context, msg) {
-            self.action.handle(context, msg);
+where F: Filter + std::marker::Send + std::marker::Sync,
+      A: GatewayMessageHandler + std::marker::Send+ std::marker::Sync 
+{
+    async fn handle(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> Result<(), String> {
+        if !self.filters.filter(context, msg) {
+            return Ok(())
         }
+        self.action.handle(context, msg).await
     }
 }
 

@@ -107,6 +107,12 @@ impl GatewayClient {
                     if let Err(e) = msg {
                         debug!("Error from websocket: {}", e);
                         error!("Could not receive message from websocket. Killing recv thread");
+                        from_local_to_gateway_tx.send(GatewayMessage {
+                            op: GatewayOpcode::Reconnect,
+                            d: Some(GatewayMessageType::Reconnect(())),
+                            s: None,
+                            t: None
+                        }).await;
                         return;
                     }
                     let text = msg.unwrap().into_text().unwrap();

@@ -6,7 +6,7 @@ use serde::de::{Visitor, MapAccess};
 use serde_json::{ser, de};
 use strum_macros::{EnumIter};
 use crate::discord;
-use serde_repr::*;
+use serde_repr::{Deserialize_repr, Serialize_repr};
 use strum::IntoEnumIterator;
 //#[allow(non_camel_case_types)]
 //enum GatewayEventName {

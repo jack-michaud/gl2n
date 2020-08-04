@@ -9,6 +9,8 @@ extern crate log;
 extern crate strum;
 extern crate strum_macros;
 extern crate serde_json;
+extern crate base64;
+extern crate async_trait;
 
 use log::*;
 use std::env;
@@ -35,7 +37,7 @@ pub struct DiscordContext {
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().unwrap();
+    dotenv::dotenv().ok();
     env_logger::init();
     let token = env::var("DISCORD_BOT_TOKEN").expect("Must supply DISCORD_BOT_TOKEN in env");
     let guild_name = env::var("GUILD_NAME").expect("Must supply GUILD_NAME in env");
@@ -47,14 +49,14 @@ async fn main() {
     let config = serde_json::de::from_str::<controller::ConfigSchema>(config_string.as_str()).expect("Could not parse config");
 
     let discord = http::HttpClient::new(token.clone());
-    let me = if let Ok(me) = discord.get_me() {
+    let me = if let Ok(me) = discord.get_me().await {
         info!("Logged in as {}", me.username);
         me
     } else {
         panic!("Could not initialize discord client");
     };
 
-    discord.get_guilds_with_channels().map_or_else(|err| {
+    discord.get_guilds_with_channels().await.map_or_else(|err| {
         panic!("Could not fetch guild: {}", err);
     },
     |guilds| {
@@ -79,6 +81,7 @@ async fn main() {
     loop {
         let mut gw = gateway::GatewayClient::new(token.clone());
         gw.start().await.expect("Could not start bot :(");
+        info!("Connected to gateway");
         loop {
             if let Some(msg) = gw.next().await {
                 if let Some(payload) = msg.d.as_ref() {
@@ -90,6 +93,8 @@ async fn main() {
                             let guild_in_map = context.guild_map.get_mut(&guild.id);
                             match guild_in_map {
                                 Some(guild_in_map) => {
+                                    // TODO I dont know if this is good. Might have more info in
+                                    // the get_guilds call above.
                                     *guild_in_map = guild.to_owned();
                                 },
                                 None => {

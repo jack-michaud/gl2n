@@ -189,3 +189,44 @@ impl Default for ChannelType {
         ChannelType::INVALID
     }
 }
+
+
+/// https://discord.com/developers/docs/resources/channel#embed-object
+#[derive(Clone, Serialize, Deserialize, Debug)]
+pub struct Embed {
+    /// title of embed
+    title: Option<String>,
+    /// type of embed (always "rich" for webhook embeds)
+    #[serde(rename = "type")]
+    _type: Option<String>,
+    /// description of embed
+    description: Option<String>,
+    /// url of embed
+    url: Option<String>,
+    /// timestamp of embed content
+    timestamp: Option<String>,
+    /// color code of the embed
+    color: Option<u32>,
+    /// footer information
+    footer: Option<()>,
+    //footer: Option<EmbedFooter>,
+    /// image information
+    image: Option<()>,
+    //image: Option<EmbedImage>,
+    /// thumbnail information
+    thumbnail: Option<()>,
+    //thumbnail: Option<EmbedThumbnail>,
+    /// video object	video information
+    video: Option<()>,
+    //video: Option<EmbedVideo>,
+    /// provider information
+    provider: Option<()>,
+    //provider: Option<EmbedProvider>,
+    /// author information
+    author: Option<()>,
+    //author: Option<EmbedAuthor>,
+    /// fields information
+    fields: Option<Vec<()>>,
+    //fields: Option<Vec<EmbedField>>,
+
+}

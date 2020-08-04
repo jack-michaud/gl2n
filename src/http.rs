@@ -1,36 +1,40 @@
 use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::{Read};
 use serde::de::{DeserializeOwned};
 use log::*;
 use std::sync::Arc;
 use reqwest::header::{HeaderMap, HeaderValue};
-use reqwest::{Client, Response, Url, Error, Method};
+use reqwest::{Url, Error, Method};
+use reqwest::{Client, Response, Body};
+use reqwest::multipart::{Part, Form};
 
 use crate::discord;
 
 const BASE: &'static str = "https://discord.com/api/v7";
 
-pub struct Route<'a> {
+pub struct Route {
     path: &'static str,
     pub method: Method,
-    meta: Box<RouteInner<'a>>
+    meta: Box<RouteInner>
 }
 
 #[derive(Clone)]
-struct RouteInner<'a> {
+struct RouteInner {
     path: Option<&'static str>,
     pub method: Option<Method>,
-    channel_id: Option<&'a String>,
-    guild_id: Option<&'a String>,
-    message_id: Option<&'a String>,
-    emoji: Option<&'a String>,
+    channel_id: Option<String>,
+    guild_id: Option<String>,
+    message_id: Option<String>,
+    emoji: Option<String>,
 }
 
 
-pub struct RouteBuilder<'a> {
-    inner: RouteInner<'a>
+pub struct RouteBuilder {
+    inner: RouteInner
 }
-impl<'a> Route<'a> {
-    pub fn new() -> RouteBuilder<'a> {
+impl Route {
+    pub fn new() -> RouteBuilder {
         RouteBuilder {
             inner: RouteInner {
                 path: None,
@@ -44,7 +48,7 @@ impl<'a> Route<'a> {
     }
 }
 
-impl<'a> RouteBuilder<'a> {
+impl RouteBuilder {
     pub fn path(mut self, path: &'static str) -> Self {
         self.inner.path = Some(path);
         self
@@ -53,23 +57,23 @@ impl<'a> RouteBuilder<'a> {
         self.inner.method = Some(method);
         self
     }
-    pub fn guild_id(mut self, guild_id: &'a String) -> Self {
+    pub fn guild_id(mut self, guild_id: String) -> Self {
         self.inner.guild_id = Some(guild_id);
         self
     }
-    pub fn channel_id(mut self, channel_id: &'a String) -> Self {
+    pub fn channel_id(mut self, channel_id: String) -> Self {
         self.inner.channel_id = Some(channel_id);
         self
     }
-    pub fn message_id(mut self, message_id: &'a String) -> Self {
+    pub fn message_id(mut self, message_id: String) -> Self {
         self.inner.message_id = Some(message_id);
         self
     }
-    pub fn emoji(mut self, emoji: &'a String) -> Self {
+    pub fn emoji(mut self, emoji: String) -> Self {
         self.inner.emoji = Some(emoji);
         self
     }
-    pub fn build(self) -> Route<'a> {
+    pub fn build(self) -> Route {
         if let None = self.inner.method {
             panic!("Must provide .method() to builder")
         }
@@ -86,7 +90,7 @@ impl<'a> RouteBuilder<'a> {
     }
 }
 
-impl<'a> Into<Url> for Route<'a> {
+impl Into<Url> for Route {
     fn into(self) -> Url {
         let mut before_subst = String::from(format!("{}{}", 
             BASE,
@@ -125,7 +129,7 @@ impl HttpClient {
             client: Arc::new(Client::new())
         }
     }
-    fn request<P: Serialize>(&self, route: Route, payload: Option<P>) -> Result<Response, Error> {
+    async fn request<P: Serialize>(&self, route: Route, payload: Option<P>) -> Result<Response, Error> {
         let mut headers = HeaderMap::new();
         headers.insert("User-Agent", HeaderValue::from_str("GlennBot").unwrap());
         headers.insert("X-Ratelimit-Precision", HeaderValue::from_str("millisecond").unwrap());
@@ -147,7 +151,7 @@ impl HttpClient {
         if let Some(payload) = payload {
             request = request.json(&payload);
         }
-        match request.send() {
+        match request.send().await {
             Ok(resp) => {
                 Ok(resp)
             },
@@ -167,19 +171,74 @@ impl HttpClient {
                         error!("(404) Not found")
                     }
                 }
+                error!("{}", err.to_string());
                 Err(err)
             }
         }
     }
 
-    pub fn request_and_parse<T: DeserializeOwned, P: Serialize>(
+    pub async fn send_file(&self, channel_id: String, filename: String, result: Vec<u8>) -> Result<(), Error> {
+        let mut part = Part::stream(Body::from(result));
+        part = part.mime_str("application/octet-stream").unwrap();
+        part = part.file_name(filename);
+
+        let mut form = Form::new();
+        form = form.part("file", part);
+
+        let route = Route::new().path("/channels/{channel_id}/messages")
+            .method(Method::POST)
+            .channel_id(channel_id)
+            .build();
+
+        let mut headers = HeaderMap::new();
+        headers.insert("User-Agent", HeaderValue::from_str("GlennBot").unwrap());
+        headers.insert("X-Ratelimit-Precision", HeaderValue::from_str("millisecond").unwrap());
+
+        if let Some(token) = self.token.clone() {
+            headers.insert(
+                "Authorization",
+                HeaderValue::from_str(format!("Bot {}", token.clone()).as_str()).unwrap()
+            );
+        }
+        debug!("{:?}", headers);
+
+        let mut request = self.client.request::<Url>(route.method.clone(), route.into());
+        request = request.headers(headers);
+        let request = request.multipart(form);
+        match request.send().await {
+            Ok(resp) => {
+                Ok(())
+            },
+            Err(err) => {
+                if let Some(status_code) = err.status() {
+                    if status_code == 429 {
+                        // Rate limited!
+                        warn!("(429) Got rate limited...");
+                    }
+                    else if status_code == 402 {
+                        error!("(402) Forbidden")
+                    }
+                    else if status_code == 403 {
+                        error!("(403) Forbidden")
+                    }
+                    else if status_code == 404 {
+                        error!("(404) Not found")
+                    }
+                }
+                error!("{}", err.to_string());
+                Err(err)
+            }
+        }
+    }
+
+    pub async fn request_and_parse<T: DeserializeOwned, P: Serialize>(
         &self, route: Route, payload: Option<P>
     ) -> Result<T, Error> {
-        let resp = self.request::<P>(route, payload);
+        let resp = self.request::<P>(route, payload).await;
         match resp {
             Ok(mut resp) => {
                 //debug!("{}", resp.text().unwrap());
-                resp.json::<T>()
+                resp.json::<T>().await
             },
             Err(err) => {
                 //debug!("{}", err.to_string());
@@ -188,32 +247,32 @@ impl HttpClient {
         }
     }
 
-    pub fn get_me(&self) -> Result<discord::Me, Error> {
+    pub async fn get_me(&self) -> Result<discord::Me, Error> {
         self.request_and_parse::<discord::Me, ()>(Route::new()
             .path("/users/@me")
-            .method(Method::GET).build(), None)
+            .method(Method::GET).build(), None).await
     }
 
-    pub fn get_guilds(&self) -> Result<Vec<discord::Guild>, Error> {
+    pub async fn get_guilds(&self) -> Result<Vec<discord::Guild>, Error> {
         self.request_and_parse::<Vec<discord::Guild>, ()>(Route::new()
-            .path("/users/@me/guilds").method(Method::GET).build(), None)
+            .path("/users/@me/guilds").method(Method::GET).build(), None).await
     }
 
-    pub fn get_guild_channels(&self, guild_id: String) -> Result<Vec<discord::Channel>, Error> {
+    pub async fn get_guild_channels(&self, guild_id: String) -> Result<Vec<discord::Channel>, Error> {
         self.request_and_parse::<Vec<discord::Channel>, ()>(Route::new()
             .path("/guilds/{guild_id}/channels")
             .method(Method::GET)
-            .guild_id(&guild_id)
-            .build(), None)
+            .guild_id(guild_id)
+            .build(), None).await
     }
 
-    pub fn get_guilds_with_channels(&self) -> Result<Vec<discord::Guild>, Error> {
+    pub async fn get_guilds_with_channels(&self) -> Result<Vec<discord::Guild>, Error> {
         let guilds = self.request_and_parse::<Vec<discord::Guild>, ()>(Route::new()
-            .path("/users/@me/guilds").method(Method::GET).build(), None);
+            .path("/users/@me/guilds").method(Method::GET).build(), None).await;
         if let Ok(guilds) = guilds {
             let mut new_guilds = Vec::<discord::Guild>::new();
             for guild in guilds {
-                let channels = self.get_guild_channels(guild.id.clone()).unwrap();
+                let channels = self.get_guild_channels(guild.id.clone()).await.unwrap();
 
                 let mut new_guild = guild.clone();
                 new_guild.channels = Some(channels);
@@ -225,33 +284,34 @@ impl HttpClient {
         }
     }
 
-    pub fn get_members(&self, guild_id: &String) -> Result<Vec<discord::Member>, Error> {
+    pub async fn get_members(&self, guild_id: String) -> Result<Vec<discord::Member>, Error> {
         self.request_and_parse::<Vec<discord::Member>, ()>(Route::new()
             .path("/guilds/{guild_id}/members?limit=100")
             .method(Method::GET)
             .guild_id(guild_id)
-            .build(), None)
+            .build(), None).await
     }
 
-    pub fn create_message(&self, channel_id: &String, content: &String) -> Result<discord::Message, Error> {
+    pub async fn create_message(&self, channel_id: String, content: String) -> Result<discord::Message, Error> {
         self.request_and_parse::<discord::Message, discord::CreateMessagePayload>(Route::new()
             .path("/channels/{channel_id}/messages")
             .method(Method::POST)
             .channel_id(channel_id)
             .build(), Some(discord::CreateMessagePayload {
-                content: content.to_owned(),
+                content,
                 tts: false
-            }))
+            })).await
     }
 
-    pub fn create_reaction(&self, channel_id: &String, message_id: &String, emoji: &String) -> Result<(), Error> {
-        self.request_and_parse::<(), ()>(Route::new()
+    pub async fn create_reaction(&self, channel_id: String, message_id: String, emoji: String) -> Result<(), Error> {
+        let route = Route::new()
             .path("/channels/{channel_id}/messages/{message_id}/reactions/{emoji}/@me")
             .method(Method::PUT)
             .channel_id(channel_id)
             .emoji(emoji)
             .message_id(message_id)
-            .build(), None)
+            .build();
+        self.request_and_parse::<(), ()>(route, None).await
     }
 }
 
