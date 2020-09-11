@@ -89,8 +89,8 @@ pub struct Ready {
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Attachment {
-    pub width: u32,
-    pub height: u32,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
     pub url: String,
     pub size: u32,
     pub proxy_url: String,
