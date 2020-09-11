@@ -17,7 +17,7 @@ use std::env;
 use std::fs::File;
 use std::io::prelude::*;
 use std::collections::HashMap;
-use std::sync::Arc;
+use tokio::time::{delay_for, Duration};
 
 pub mod discord;
 pub mod http;
@@ -80,7 +80,14 @@ async fn main() {
 
     loop {
         let mut gw = gateway::GatewayClient::new(token.clone());
-        gw.start().await.expect("Could not start bot :(");
+        match gw.start().await {
+            Ok(_) => {}
+            Err(_) => {
+                error!("Could not start bot :( Trying again...");
+                delay_for(Duration::from_secs(5)).await;
+                continue
+            }
+        }
         info!("Connected to gateway");
         loop {
             if let Some(msg) = gw.next().await {

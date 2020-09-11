@@ -112,7 +112,9 @@ impl GatewayClient {
                             d: Some(GatewayMessageType::Reconnect(())),
                             s: None,
                             t: None
-                        }).await;
+                        }).await.map_err(|_| {
+                            panic!("Could not send reconnect message.");
+                        });
                         return;
                     }
                     let text = msg.unwrap().into_text().unwrap();
