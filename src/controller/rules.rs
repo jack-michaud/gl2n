@@ -11,7 +11,8 @@ use crate::gateway;
 #[allow(non_camel_case_types)]
 #[serde(tag = "event")]
 pub enum RuleVariant {
-    MESSAGE_CREATE(Rule<MessageCreateFilter, Action>)
+    MESSAGE_CREATE(Rule<MessageCreateFilter, Action>),
+    MESSAGE_REACTION_ADD(Rule<MessageReactionAddFilter, Action>)
 }
 
 #[async_trait]
@@ -19,6 +20,9 @@ impl GatewayMessageHandler for RuleVariant {
     async fn handle(&self, context: &DiscordContext, message: &gateway::GatewayMessage) -> Result<(), String> {
         match self {
             RuleVariant::MESSAGE_CREATE(rule) => {
+                rule.handle(context, message).await
+            },
+            RuleVariant::MESSAGE_REACTION_ADD(rule) => {
                 rule.handle(context, message).await
             }
         }
@@ -121,6 +125,61 @@ impl Filter for MessageCreateFilter {
                         }
                     }
                 }
+                true
+            },
+            _ => false
+        }
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct MessageReactionAddFilter {
+    /// Message content regex
+    pub channel_name: Option<String>,
+    /// Username regex (include # or not)
+    pub username: Option<String>,
+    /// React (custom emoji name or unicode)
+    pub react: Option<String>
+}
+impl Filter for MessageReactionAddFilter {
+    fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
+        let payload = msg.d.clone().unwrap();
+        match payload {
+            gateway::GatewayMessageType::MessageReactionAdd(react) => {
+                if react.user_id == context.me.id {
+                    return false;
+                }
+
+                // Check channel_name
+                if let Some(searched_channel_name) = self.channel_name.as_ref() {
+                    if let Some(channels) = context.guild_map.get(&react.guild_id).unwrap().channels.as_ref() {
+                        for channel in channels {
+                            if channel.id == react.channel_id {
+                                if let Some(channel_name) = channel.name.as_ref() {
+                                    if !regex_match(&searched_channel_name, channel_name) {
+                                        return false
+                                    }
+                                }
+                                break
+                            }
+                        }
+                    }
+                }
+
+                // Check username
+                let author = format!("{}#{}", react.member.user.username, react.member.user.discriminator);
+                if let Some(searched_user) = &self.username {
+                    if !regex_match(&searched_user, &author) {
+                        return false
+                    }
+                }
+
+                if let Some(react_str) = &self.react {
+                    if !regex_match(&react_str, &react.emoji.name) {
+                        return false
+                    }
+                }
+
                 true
             },
             _ => false

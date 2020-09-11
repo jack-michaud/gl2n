@@ -98,15 +98,26 @@ pub struct EchoOptions {
 #[async_trait]
 impl GatewayMessageHandler for EchoOptions {
     async fn handle(&self, context: &DiscordContext, message: &GatewayMessage) -> Result<(), String> {
-        if let Some(GatewayMessageType::MessageCreate(msg)) = message.d.clone() {
-            info!("Got message create");
-            let data: EchoData = EchoData {
-                meta: self.to_owned(),
-                channel_id: msg.channel_id
-            };
-            data.execute(context).await
-        } else {
-            Ok(())
+        match message.d.clone().unwrap() {
+            GatewayMessageType::MessageCreate(msg) => {
+                info!("Got message create");
+                let data: EchoData = EchoData {
+                    meta: self.to_owned(),
+                    channel_id: msg.channel_id
+                };
+                data.execute(context).await
+            },
+            GatewayMessageType::MessageReactionAdd(react) => {
+                info!("Got react add");
+                let data: EchoData = EchoData {
+                    meta: self.to_owned(),
+                    channel_id: react.channel_id
+                };
+                data.execute(context).await
+            },
+            _ => {
+                Ok(())
+            }
         }
     }
 }

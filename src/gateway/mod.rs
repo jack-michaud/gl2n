@@ -99,10 +99,6 @@ impl GatewayClient {
         let (mut from_local_to_gateway_tx, gateway_message_rx) = channel::<GatewayMessage>(1 << 8);
         tokio::spawn(async move {
             loop {
-                // If we're flushing connections, stop
-                //if self.state == GatewayState::Flushing {
-                //    return;
-                //}
                 if let Some(msg) = ws_rx.next().await {
                     if let Err(e) = msg {
                         debug!("Error from websocket: {}", e);

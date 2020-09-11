@@ -27,6 +27,7 @@ pub enum SupportedGatewayMessages {
     IDENTIFY,
     HEARTBEAT,
     MESSAGE_CREATE,
+    MESSAGE_REACTION_ADD,
     HELLO,
 
     OTHER
@@ -40,6 +41,7 @@ fn event_convert<'a>(msg: gateway::GatewayMessageType) -> SupportedGatewayMessag
         gateway::GatewayMessageType::GuildCreate(_) => SupportedGatewayMessages::GUILD_CREATE,
         gateway::GatewayMessageType::Ready(_) => SupportedGatewayMessages::READY,
         gateway::GatewayMessageType::MessageCreate(_) => SupportedGatewayMessages::MESSAGE_CREATE,
+        gateway::GatewayMessageType::MessageReactionAdd(_) => SupportedGatewayMessages::MESSAGE_REACTION_ADD,
         gateway::GatewayMessageType::Hello(_) => SupportedGatewayMessages::HELLO,
         gateway::GatewayMessageType::InvalidSession(_) => SupportedGatewayMessages::OTHER,
         gateway::GatewayMessageType::Reconnect(_) => SupportedGatewayMessages::OTHER,
@@ -62,6 +64,10 @@ impl Controller {
                     info!("Found MESSAGE_CREATE rule");
                     SupportedGatewayMessages::MESSAGE_CREATE
                 },
+                RuleVariant::MESSAGE_REACTION_ADD(_) => {
+                    info!("Found MESSAGE_REACTION_ADD");
+                    SupportedGatewayMessages::MESSAGE_REACTION_ADD
+                }
             };
 
             if let Some(rules) = event_map.get_mut(&event_type) {

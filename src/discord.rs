@@ -26,6 +26,7 @@ pub struct Emoji {
   pub available: bool,
   pub animated: bool
 }
+// Raw {"name":"👍","id":null}
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Guild {
@@ -62,10 +63,15 @@ pub struct User {
     //pub public_falgs: i32,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Member {
     pub user: User,
-    pub nick: Option<String>
+    pub nick: Option<String>,
+    pub roles: Vec<String>,
+    pub joined_at: String,
+    pub mute: bool,
+    pub hoisted_role: Option<String>,
+    pub deaf: bool
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -113,9 +119,25 @@ pub struct Message {
     pub mentions: Vec<User>,
     //mention_roles: Vec<Role>
     //mention_channels: Vec<ChannelMention>
-    pub attachments: Vec<Attachment>
+    pub attachments: Vec<Attachment>,
     //embeds: Vec<Embed>
-    //reactions: Vec<Reaction>
+    pub reactions: Option<Vec<Reaction>>
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct Reaction {
+    pub user_id: String,
+    pub message_id: String,
+    pub channel_id: String,
+    pub guild_id: String,
+    pub member: Member,
+    pub emoji: ReactionEmoji
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct ReactionEmoji {
+    pub name: String,
+    pub id: Option<String>
 }
 
 

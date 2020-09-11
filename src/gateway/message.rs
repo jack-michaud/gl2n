@@ -112,7 +112,7 @@ pub enum GatewayOpcode {
 pub trait GatewayPayload<'a>: Serialize + Deserialize<'a> + Clone {}
 
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Serialize, Debug)]
 pub struct GatewayMessage {
     /// Opcode for the payload
     pub op: GatewayOpcode,
@@ -187,6 +187,9 @@ impl<'de> Visitor<'de> for GatewayMessageVisitor {
                     "\"HELLO\"" => {
                         d = Some(GatewayMessageType::Hello(de::from_str::<HelloPayload>(d_str.as_str()).unwrap()));
                     },
+                    "\"MESSAGE_REACTION_ADD\"" => {
+                        d = Some(GatewayMessageType::MessageReactionAdd(de::from_str::<discord::Reaction>(d_str.as_str()).unwrap()));
+                    },
                     "\"MESSAGE_CREATE\"" => {
                         d = Some(GatewayMessageType::MessageCreate(de::from_str::<discord::Message>(d_str.as_str()).unwrap()));
                     },
@@ -238,9 +241,11 @@ impl<'de> Visitor<'de> for GatewayMessageVisitor {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize, EnumIter)]
+#[derive(Clone, Serialize, Deserialize, EnumIter, Debug)]
 //#[serde(tag = "t")]
+//#[serde(untagged)]
 pub enum GatewayMessageType {
+    MessageReactionAdd(discord::Reaction),
     MessageCreate(discord::Message),
     GuildCreate(discord::Guild),
     Ready(discord::Ready),
@@ -289,7 +294,7 @@ pub struct HelloMessage {
     pub t: Option<()>
 }
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct HelloPayload {
     pub heartbeat_interval: u64
 }
@@ -393,6 +398,20 @@ mod test {
         match message.d.unwrap() {
             GatewayMessageType::MessageCreate(msg) => {
                 assert_eq!(msg.content, "aaa");
+            },
+            _ => panic!("Deserialized incorrectly")
+        }
+    }
+
+    #[test]
+    fn deserialize_message_reaction_add_from_gateway() {
+        let message_str = r#"{"t":"MESSAGE_REACTION_ADD","s":5,"op":0,"d":{"user_id":"228347641120030731","message_id":"753807148777209886","member":{"user":{"username":"lomz","id":"228347641120030731","discriminator":"2555","avatar":"a4cd28fe90118475114437f18a4f7d56"},"roles":["437773472324911115"],"premium_since":null,"nick":"json michaud","mute":false,"joined_at":"2017-10-15T01:29:37.754000+00:00","hoisted_role":null,"deaf":false},"emoji":{"name":"Doggo","id":"437783545490964482"},"channel_id":"705147009761280010","guild_id":"368933402751008771"}}"#;
+
+        let message = de::from_str::<GatewayMessage>(message_str).unwrap();
+
+        match message.d.unwrap() {
+            GatewayMessageType::MessageReactionAdd(reaction) => {
+                assert_eq!(reaction.emoji.name, "Doggo");
             },
             _ => panic!("Deserialized incorrectly")
         }
