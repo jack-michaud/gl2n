@@ -26,19 +26,28 @@ pub struct Emoji {
   pub available: bool,
   pub animated: bool
 }
-// Raw {"name":"👍","id":null}
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct Guild {
     pub id: String,
     pub name: String,
-    pub icon: String,
+    pub icon: Option<String>,
     pub owner: Option<bool>,
     pub permissions: Option<i32>,
     pub features: Vec<()>,
     pub permissions_new: Option<String>,
     pub channels: Option<Vec<Channel>>,
-    pub emojis: Option<Vec<Emoji>>
+    pub emojis: Option<Vec<Emoji>>,
+    pub roles: Option<Vec<Role>>
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct Role {
+    pub position: i32,
+    pub permissions_new: Option<String>,
+    pub name: String,
+    pub id: String
+
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
@@ -128,6 +137,8 @@ pub struct Message {
 pub struct Reaction {
     pub user_id: String,
     pub message_id: String,
+    /// We populate this when we throw this up to the webhook
+    pub message: Option<Message>,
     pub channel_id: String,
     pub guild_id: String,
     pub member: Member,

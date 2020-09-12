@@ -256,6 +256,25 @@ pub enum GatewayMessageType {
     Resumed(()),
     HeartbeatAck(())
 }
+
+impl GatewayMessageType {
+    pub fn get_guild_id(&self) -> Option<String> {
+        match self {
+            GatewayMessageType::MessageReactionAdd(react) => {
+                Some(react.guild_id.clone())
+            },
+            GatewayMessageType::MessageCreate(msg) => {
+                msg.guild_id.clone()
+            },
+            GatewayMessageType::GuildCreate(msg) => {
+                Some(msg.id.clone())
+            }
+            _ => {
+                None
+            }
+        }
+    }
+}
 impl Default for GatewayMessageType {
     fn default() -> Self {
         GatewayMessageType::Heartbeat(())

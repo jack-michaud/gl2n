@@ -24,8 +24,10 @@ struct RouteInner {
     path: Option<&'static str>,
     pub method: Option<Method>,
     channel_id: Option<String>,
+    user_id: Option<String>,
     guild_id: Option<String>,
     message_id: Option<String>,
+    role_id: Option<String>,
     emoji: Option<String>,
 }
 
@@ -42,6 +44,8 @@ impl Route {
                 channel_id: None,
                 guild_id: None,
                 message_id: None,
+                role_id: None,
+                user_id: None,
                 emoji: None
             }
         }
@@ -67,6 +71,14 @@ impl RouteBuilder {
     }
     pub fn message_id(mut self, message_id: String) -> Self {
         self.inner.message_id = Some(message_id);
+        self
+    }
+    pub fn role_id(mut self, role_id: String) -> Self {
+        self.inner.role_id = Some(role_id);
+        self
+    }
+    pub fn user_id(mut self, user_id: String) -> Self {
+        self.inner.user_id = Some(user_id);
         self
     }
     pub fn emoji(mut self, emoji: String) -> Self {
@@ -107,6 +119,12 @@ impl Into<Url> for Route {
         }
         if let Some(message_id) = self.meta.message_id {
             before_subst = before_subst.replace("{message_id}", message_id.as_str());
+        }
+        if let Some(role_id) = self.meta.role_id {
+            before_subst = before_subst.replace("{role_id}", role_id.as_str());
+        }
+        if let Some(user_id) = self.meta.user_id {
+            before_subst = before_subst.replace("{user_id}", user_id.as_str());
         }
         let url = before_subst.as_str();
         debug!("{}", url);
@@ -253,6 +271,15 @@ impl HttpClient {
             .method(Method::GET).build(), None).await
     }
 
+    pub async fn get_message(&self, guild_id: String, message_id: String) -> Result<discord::Message, Error> {
+        self.request_and_parse::<discord::Message, ()>(Route::new()
+            .path("/channels/{channel_id}/messages/{message_id}")
+            .method(Method::GET)
+            .guild_id(guild_id)
+            .message_id(message_id)
+            .build(), None).await
+    }
+
     pub async fn get_guilds(&self) -> Result<Vec<discord::Guild>, Error> {
         self.request_and_parse::<Vec<discord::Guild>, ()>(Route::new()
             .path("/users/@me/guilds").method(Method::GET).build(), None).await
@@ -310,6 +337,28 @@ impl HttpClient {
             .channel_id(channel_id)
             .emoji(emoji)
             .message_id(message_id)
+            .build();
+        self.request_and_parse::<(), ()>(route, None).await
+    }
+
+    pub async fn add_guild_member_role(&self, guild_id: String, user_id: String, role_id: String) -> Result<(), Error> {
+        let route = Route::new()
+            .path("/guilds/{guild_id}/members/{user_id}/roles/{role_id}")
+            .method(Method::PUT)
+            .guild_id(guild_id)
+            .user_id(user_id)
+            .role_id(role_id)
+            .build();
+        self.request_and_parse::<(), ()>(route, None).await
+    }
+
+    pub async fn remove_guild_member_role(&self, guild_id: String, user_id: String, role_id: String) -> Result<(), Error> {
+        let route = Route::new()
+            .path("/guilds/{guild_id}/members/{user_id}/roles/{role_id}")
+            .method(Method::DELETE)
+            .guild_id(guild_id)
+            .user_id(user_id)
+            .role_id(role_id)
             .build();
         self.request_and_parse::<(), ()>(route, None).await
     }

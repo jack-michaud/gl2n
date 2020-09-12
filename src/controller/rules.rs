@@ -3,7 +3,7 @@ use regex::Regex;
 use async_trait::async_trait;
 
 
-use crate::controller::actions::{Action, GatewayMessageHandler};
+use crate::controller::actions::{ActionType, GatewayMessageHandler};
 use crate::DiscordContext;
 use crate::gateway;
 
@@ -11,8 +11,8 @@ use crate::gateway;
 #[allow(non_camel_case_types)]
 #[serde(tag = "event")]
 pub enum RuleVariant {
-    MESSAGE_CREATE(Rule<MessageCreateFilter, Action>),
-    MESSAGE_REACTION_ADD(Rule<MessageReactionAddFilter, Action>)
+    MESSAGE_CREATE(Rule<MessageCreateFilter, ActionType>),
+    MESSAGE_REACTION_ADD(Rule<MessageReactionAddFilter, ActionType>)
 }
 
 #[async_trait]
