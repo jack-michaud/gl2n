@@ -12,7 +12,7 @@ use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use crate::DiscordContext;
 use crate::controller::actions::{ActionData, RunAction, GatewayMessageHandler, GatewayMessage};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WebhookOptions {
     pub url: String,
     #[serde(serialize_with="serialize_header_map")]
@@ -108,5 +108,57 @@ impl RunAction for WebhookData {
             Err(res.err().unwrap().to_string())
         }
  
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use super::super::rules::*;
+    use super::super::actions::*;
+    use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
+
+    #[test]
+    fn serialize_header_config() {
+        let mut headers = HeaderMap::new();
+        headers.insert(HeaderName::from_static("authorization"), HeaderValue::from_static("jwt"));
+        let config = ConfigSchema {
+            guild_id: String::from("1"),
+            rules: vec![RuleVariant::MESSAGE_CREATE(Rule {
+                filters: MessageCreateFilter {
+                    content: Some(String::from("test")),
+                    channel_name: None,
+                    username: None,
+                    attachments: None
+                },
+                action: ActionType::Webhook(WebhookOptions {
+                    url: String::from("http://localhost"),
+                    headers
+                })
+            })]
+        };
+
+        assert_eq!(
+            serde_json::ser::to_string(&config).unwrap(),
+            r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost","headers":{"authorization":"jwt"}}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}],"guild_id":"1"}"#
+        )
+    }
+
+    /// Invalid header name
+    #[test]
+    #[should_panic]
+    fn deserialize_invalid_http_header() {
+        let invalid_config = r#"{"rules":[{"event":"MESSAGE_CREATE","action":{"type":"Webhook","options":{"url":"http://localhost","headers":{"/":"jwt"}}},"filters":{"content":"test","channel_name":null,"username":null,"attachments":null}}],"guild_id":"1"}"#;
+
+        let config = serde_json::de::from_str::<ConfigSchema>(invalid_config);
+    }
+
+
+    use strum::IntoEnumIterator;
+    #[test]
+    fn support_all_gateway_events() {
+        for _type in gateway::GatewayMessageType::iter() {
+            event_convert(_type);
+        }
     }
 }

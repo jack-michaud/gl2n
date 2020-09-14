@@ -10,7 +10,7 @@ use crate::DiscordContext;
 use crate::gateway::{GatewayMessage, GatewayMessageType};
 use crate::controller::actions::{RunAction, GatewayMessageHandler};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReactOptions {
     pub emojis: Option<Vec<String>>,
     pub custom_emojis: Option<Vec<String>>

@@ -1,3 +1,4 @@
+use log::*;
 use serde::{Deserialize, Serialize, Serializer};
 use regex::Regex;
 use async_trait::async_trait;
@@ -12,7 +13,8 @@ use crate::gateway;
 #[serde(tag = "event")]
 pub enum RuleVariant {
     MESSAGE_CREATE(Rule<MessageCreateFilter, ActionType>),
-    MESSAGE_REACTION_ADD(Rule<MessageReactionAddFilter, ActionType>)
+    MESSAGE_REACTION_ADD(Rule<MessageReactionFilter, ActionType>),
+    MESSAGE_REACTION_REMOVE(Rule<MessageReactionFilter, ActionType>)
 }
 
 #[async_trait]
@@ -23,6 +25,9 @@ impl GatewayMessageHandler for RuleVariant {
                 rule.handle(context, message).await
             },
             RuleVariant::MESSAGE_REACTION_ADD(rule) => {
+                rule.handle(context, message).await
+            }
+            RuleVariant::MESSAGE_REACTION_REMOVE(rule) => {
                 rule.handle(context, message).await
             }
         }
@@ -133,7 +138,7 @@ impl Filter for MessageCreateFilter {
 }
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct MessageReactionAddFilter {
+pub struct MessageReactionFilter {
     /// Message content regex
     pub channel_name: Option<String>,
     /// Username regex (include # or not)
@@ -141,7 +146,7 @@ pub struct MessageReactionAddFilter {
     /// React (custom emoji name or unicode)
     pub react: Option<String>
 }
-impl Filter for MessageReactionAddFilter {
+impl Filter for MessageReactionFilter {
     fn filter(&self, context: &DiscordContext, msg: &gateway::GatewayMessage) -> bool {
         let payload = msg.d.clone().unwrap();
         match payload {
@@ -182,6 +187,41 @@ impl Filter for MessageReactionAddFilter {
 
                 true
             },
+            gateway::GatewayMessageType::MessageReactionRemove(react) => {
+                if react.user_id == context.me.id {
+                    return false;
+                }
+
+                // Check channel_name
+                if let Some(searched_channel_name) = self.channel_name.as_ref() {
+                    if let Some(channels) = context.guild_map.get(&react.guild_id).unwrap().channels.as_ref() {
+                        for channel in channels {
+                            if channel.id == react.channel_id {
+                                if let Some(channel_name) = channel.name.as_ref() {
+                                    if !regex_match(&searched_channel_name, channel_name) {
+                                        return false
+                                    }
+                                }
+                                break
+                            }
+                        }
+                    }
+                }
+
+                // Check username
+                if let Some(_) = &self.username {
+                    // TODO check actual username
+                    return false
+                }
+
+                if let Some(react_str) = &self.react {
+                    if !regex_match(&react_str, &react.emoji.name) {
+                        return false
+                    }
+                }
+
+                true
+            }
             _ => false
         }
     }

@@ -21,7 +21,7 @@ use crate::controller::actions::{
     GatewayMessage
 };
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Base64File {
     /// base 64 encoded content
     pub contents: String,
@@ -29,7 +29,7 @@ pub struct Base64File {
     pub filename: String 
 }
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EchoOptions {
     pub content: Option<String>,
     pub file: Option<Base64File>
@@ -37,27 +37,16 @@ pub struct EchoOptions {
 #[async_trait]
 impl GatewayMessageHandler for EchoOptions {
     async fn handle(&self, context: &DiscordContext, message: &GatewayMessage) -> Result<(), String> {
-        match message.d.clone().unwrap() {
-            GatewayMessageType::MessageCreate(msg) => {
-                info!("Got message create");
+        if let Some(payload) = message.d.clone() {
+            if let Some(channel_id) = payload.get_channel_id() {
                 let data: EchoData = EchoData {
                     meta: self.to_owned(),
-                    channel_id: msg.channel_id
+                    channel_id
                 };
-                data.execute(context).await
-            },
-            GatewayMessageType::MessageReactionAdd(react) => {
-                info!("Got react add");
-                let data: EchoData = EchoData {
-                    meta: self.to_owned(),
-                    channel_id: react.channel_id
-                };
-                data.execute(context).await
-            },
-            _ => {
-                Ok(())
+                return data.execute(context).await
             }
         }
+        Err(String::from("Could not handle message"))
     }
 }
 

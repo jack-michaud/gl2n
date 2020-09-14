@@ -146,6 +146,16 @@ pub struct Reaction {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, Default)]
+pub struct RemoveReaction {
+    pub user_id: String,
+    pub message_id: String,
+    pub channel_id: String,
+    pub guild_id: String,
+    pub emoji: ReactionEmoji
+}
+
+
+#[derive(Clone, Serialize, Deserialize, Debug, Default)]
 pub struct ReactionEmoji {
     pub name: String,
     pub id: Option<String>

@@ -190,6 +190,9 @@ impl<'de> Visitor<'de> for GatewayMessageVisitor {
                     "\"MESSAGE_REACTION_ADD\"" => {
                         d = Some(GatewayMessageType::MessageReactionAdd(de::from_str::<discord::Reaction>(d_str.as_str()).unwrap()));
                     },
+                    "\"MESSAGE_REACTION_REMOVE\"" => {
+                        d = Some(GatewayMessageType::MessageReactionRemove(de::from_str::<discord::RemoveReaction>(d_str.as_str()).unwrap()));
+                    },
                     "\"MESSAGE_CREATE\"" => {
                         d = Some(GatewayMessageType::MessageCreate(de::from_str::<discord::Message>(d_str.as_str()).unwrap()));
                     },
@@ -245,6 +248,7 @@ impl<'de> Visitor<'de> for GatewayMessageVisitor {
 //#[serde(tag = "t")]
 //#[serde(untagged)]
 pub enum GatewayMessageType {
+    MessageReactionRemove(discord::RemoveReaction),
     MessageReactionAdd(discord::Reaction),
     MessageCreate(discord::Message),
     GuildCreate(discord::Guild),
@@ -260,6 +264,9 @@ pub enum GatewayMessageType {
 impl GatewayMessageType {
     pub fn get_guild_id(&self) -> Option<String> {
         match self {
+            GatewayMessageType::MessageReactionRemove(react) => {
+                Some(react.guild_id.clone())
+            },
             GatewayMessageType::MessageReactionAdd(react) => {
                 Some(react.guild_id.clone())
             },
@@ -270,6 +277,24 @@ impl GatewayMessageType {
                 Some(msg.id.clone())
             }
             _ => {
+                debug!("Could not get guild_id");
+                None
+            }
+        }
+    }
+    pub fn get_channel_id(&self) -> Option<String> {
+        match self {
+            GatewayMessageType::MessageCreate(msg) => {
+                Some(msg.channel_id.clone())
+            },
+            GatewayMessageType::MessageReactionAdd(react) => {
+                Some(react.channel_id.clone())
+            },
+            GatewayMessageType::MessageReactionRemove(react) => {
+                Some(react.channel_id.clone())
+            },
+            _ => {
+                debug!("Could not get channel_id");
                 None
             }
         }

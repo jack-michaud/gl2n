@@ -29,6 +29,7 @@ pub enum SupportedGatewayMessages {
     HEARTBEAT,
     MESSAGE_CREATE,
     MESSAGE_REACTION_ADD,
+    MESSAGE_REACTION_REMOVE,
     HELLO,
 
     OTHER
@@ -43,13 +44,13 @@ fn event_convert<'a>(msg: gateway::GatewayMessageType) -> SupportedGatewayMessag
         gateway::GatewayMessageType::Ready(_) => SupportedGatewayMessages::READY,
         gateway::GatewayMessageType::MessageCreate(_) => SupportedGatewayMessages::MESSAGE_CREATE,
         gateway::GatewayMessageType::MessageReactionAdd(_) => SupportedGatewayMessages::MESSAGE_REACTION_ADD,
+        gateway::GatewayMessageType::MessageReactionRemove(_) => SupportedGatewayMessages::MESSAGE_REACTION_REMOVE,
         gateway::GatewayMessageType::Hello(_) => SupportedGatewayMessages::HELLO,
         gateway::GatewayMessageType::InvalidSession(_) => SupportedGatewayMessages::OTHER,
         gateway::GatewayMessageType::Reconnect(_) => SupportedGatewayMessages::OTHER,
         gateway::GatewayMessageType::Heartbeat(_) => SupportedGatewayMessages::OTHER,
         gateway::GatewayMessageType::Resumed(_) => SupportedGatewayMessages::OTHER,
         gateway::GatewayMessageType::HeartbeatAck(_) => SupportedGatewayMessages::OTHER,
-        _ => panic!("Unsupported event in controller")
     }
 }
 
@@ -70,6 +71,10 @@ impl Controller {
                     RuleVariant::MESSAGE_REACTION_ADD(_) => {
                         info!("Found MESSAGE_REACTION_ADD");
                         SupportedGatewayMessages::MESSAGE_REACTION_ADD
+                    },
+                    RuleVariant::MESSAGE_REACTION_REMOVE(_) => {
+                        info!("Found MESSAGE_REACTION_REMOVE");
+                        SupportedGatewayMessages::MESSAGE_REACTION_REMOVE
                     }
                 };
 

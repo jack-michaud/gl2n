@@ -10,13 +10,13 @@ use crate::gateway::{GatewayMessage, GatewayMessageType};
 use crate::controller::actions::{RunAction, GatewayMessageHandler};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AddRoleOptions {
+pub struct RemoveRoleOptions {
     pub role_name: Option<String>,
     pub role_id: Option<String>
 }
 
 #[async_trait]
-impl GatewayMessageHandler for AddRoleOptions {
+impl GatewayMessageHandler for RemoveRoleOptions {
     async fn handle(&self, context: &DiscordContext, message: &GatewayMessage) -> Result<(), String> {
         if let None = message.d {
             return Ok(());
@@ -50,12 +50,18 @@ impl GatewayMessageHandler for AddRoleOptions {
                 GatewayMessageType::MessageReactionAdd(react) => {
                     Some(react.user_id.clone())
                 },
-                _ => None
+                GatewayMessageType::MessageReactionRemove(react) => {
+                    Some(react.user_id.clone())
+                },
+                _ => {
+                    warn!("Could not get user_id for this message");
+                    None
+                }
             };
 
             match (user_id, get_role_id()) {
                 (Some(user_id), Some(role_id)) => {
-                    let data = AddRoleData {
+                    let data = RemoveRoleData {
                         user_id,
                         guild_id: guild_id.clone().to_owned(),
                         role_id,
@@ -63,6 +69,7 @@ impl GatewayMessageHandler for AddRoleOptions {
                     return data.execute(context).await
                 },
                 _ => {
+                    warn!("Could not remove role");
                     return Err(String::from("Could not get role_id or user_id for role action"))
                 }
             }
@@ -73,16 +80,16 @@ impl GatewayMessageHandler for AddRoleOptions {
 }
 
 #[derive(Clone, Deserialize)]
-pub struct AddRoleData {
+pub struct RemoveRoleData {
     pub guild_id: String,
     pub user_id: String,
     pub role_id: String,
 }
 
 #[async_trait]
-impl RunAction for AddRoleData {
+impl RunAction for RemoveRoleData {
     async fn execute(&self, context: &DiscordContext) -> Result<(), String> {
-        context.http_client.add_guild_member_role(
+        context.http_client.remove_guild_member_role(
             self.guild_id.clone(),
             self.user_id.clone(),
             self.role_id.clone()
