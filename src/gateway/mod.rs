@@ -39,12 +39,14 @@ enum GatewayState {
     InvalidSession,
 }
 
+
 pub struct GatewayClient {
     token: String,
     session_id: Option<String>,
     seq_num: Option<u64>,
     gateway_message_rx: Receiver<GatewayMessage>,
     gateway_message_tx: Sender<GatewayCommand>,
+    heartbeat_exit_tx: Sender<bool>,
     state: GatewayState,
     heartbeat_thread: Option<JoinHandle<()>>
 }
@@ -54,6 +56,7 @@ impl GatewayClient {
     pub fn new(token: String) -> Self {
         let (_, rx) = channel::<GatewayMessage>(1);
         let (tx, _) = channel::<GatewayCommand>(1);
+        let (heartbeat_exit_tx, _) = channel::<bool>(1);
         GatewayClient {
             token,
             state: GatewayState::New,
@@ -61,6 +64,7 @@ impl GatewayClient {
             seq_num: None,
             gateway_message_rx: rx,
             gateway_message_tx: tx,
+            heartbeat_exit_tx,
             heartbeat_thread: None
         }
     }
@@ -127,6 +131,17 @@ impl GatewayClient {
                             debug!("Closing gateway->local channel");
                             return;
                         }
+                    } else {
+                        debug!("Bad gateway message. Sending reconnect message");
+                        from_local_to_gateway_tx.send(GatewayMessage {
+                            op: GatewayOpcode::Reconnect,
+                            d: Some(GatewayMessageType::Reconnect(())),
+                            s: None,
+                            t: None
+                        }).await.map_err(|_| {
+                            panic!("Could not send reconnect message.");
+                        });
+                        return;
                     }
                 }
             }
@@ -163,7 +178,7 @@ impl GatewayClient {
 
         self.gateway_message_rx = gateway_message_rx;
         self.gateway_message_tx = gateway_message_tx;
-        self.start_heartbeat(heartbeat_interval);
+        self.heartbeat_exit_tx = self.start_heartbeat(heartbeat_interval);
         if let Err(msg) = self.identify().await {
             panic!("Could not identify self; {}", msg);
         };
@@ -190,6 +205,17 @@ impl GatewayClient {
         };
         if let Some(seq_num) = msg.s {
             self.seq_num = Some(seq_num);
+        }
+    }
+
+    pub async fn stop_heartbeat(&mut self) {
+        match self.heartbeat_exit_tx.send(true).await {
+            Ok(_) => {
+                info!("Stopped heartbeat");
+            },
+            Err(e) => {
+                error!("Could not stop heartbeat D: {:?}", e);
+            }
         }
     }
 
@@ -221,7 +247,7 @@ impl GatewayClient {
                 token: self.token.clone(),
                 presence: IdentifyPresencePayload {
                     game: IdentifyPresenceGamePayload {
-                        name: String::from("GL2N Prototyping"),
+                        name: String::from("GL2N"),
                         _type: 0
                     },
                     afk: false,
@@ -261,11 +287,17 @@ impl GatewayClient {
         Ok(())
     }
 
-    pub fn start_heartbeat(&mut self, heartbeat_interval: u64) {
+    pub fn start_heartbeat(&mut self, heartbeat_interval: u64) -> Sender<bool> {
         debug!("Starting heartbeat thread at {} ms interval", heartbeat_interval);
+        let (exit_tx, mut exit_rx) = channel::<bool>(16);
         let mut gateway_message_tx = self.gateway_message_tx.clone();
         let heartbeat_thread = tokio::spawn(async move {
             loop {
+                if let Ok(should_exit) = exit_rx.try_recv() {
+                    if should_exit {
+                        return;
+                    }
+                };
                 let heartbeat = GatewayCommand {
                     op: GatewayOpcode::Heartbeat,
                     d: GatewayCommandType::Heartbeat(()),
@@ -280,6 +312,7 @@ impl GatewayClient {
             }
         });
         self.heartbeat_thread = Some(heartbeat_thread);
+        exit_tx
     }
 }
 

@@ -93,6 +93,7 @@ async fn main() {
                 if let Some(payload) = msg.d.as_ref() {
                     match payload {
                         gateway::GatewayMessageType::Reconnect(_) => {
+                            gw.stop_heartbeat();
                             break;
                         },
                         gateway::GatewayMessageType::GuildCreate(guild) => {
