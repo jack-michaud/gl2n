@@ -22,7 +22,7 @@ impl GatewayMessageHandler for ReactOptions {
         if let Some(GatewayMessageType::MessageCreate(msg)) = message.d.clone() {
             let data = ReactData {
                 meta: self.to_owned(),
-                guild_id: msg.guild_id.unwrap(),
+                guild_id: msg.guild_id,
                 message_id: msg.id,
                 channel_id: msg.channel_id
             };

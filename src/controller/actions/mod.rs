@@ -5,19 +5,19 @@ use serde::{Deserialize, Serialize};
 use crate::DiscordContext;
 
 mod webhook;
-use webhook::{WebhookData, WebhookOptions};
+pub use webhook::{WebhookData, WebhookOptions};
 
 mod echo;
-use echo::{EchoData, EchoOptions};
+pub use echo::{EchoData, EchoOptions};
 
 mod react;
-use react::{ReactOptions, ReactData};
+pub use react::{ReactOptions, ReactData};
 
 mod addrole;
-use addrole::{AddRoleOptions, AddRoleData};
+pub use addrole::{AddRoleOptions, AddRoleData};
 
 mod removerole;
-use removerole::{RemoveRoleOptions, RemoveRoleData};
+pub use removerole::{RemoveRoleOptions, RemoveRoleData};
 
 use crate::gateway::{GatewayMessage, GatewayMessageType};
 
@@ -48,16 +48,12 @@ pub trait GatewayMessageHandler {
 #[async_trait]
 impl GatewayMessageHandler for ActionType {
     async fn handle(&self, context: &DiscordContext, message: &GatewayMessage) -> Result<(), String> {
-        error!("REMOVE 1: {:?}", self);
         (match self {
             ActionType::Webhook(options) => options.handle(context, message),
             ActionType::Echo(options) => options.handle(context, message),
             ActionType::React(options) => options.handle(context, message),
             ActionType::AddRole(options) => options.handle(context, message),
-            ActionType::RemoveRole(options) => {
-                error!("REMOVE 2");
-                options.handle(context, message)
-            }
+            ActionType::RemoveRole(options) => options.handle(context, message)
         }).await
     }
 }

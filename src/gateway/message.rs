@@ -271,7 +271,7 @@ impl GatewayMessageType {
                 Some(react.guild_id.clone())
             },
             GatewayMessageType::MessageCreate(msg) => {
-                msg.guild_id.clone()
+                Some(msg.guild_id.clone())
             },
             GatewayMessageType::GuildCreate(msg) => {
                 Some(msg.id.clone())

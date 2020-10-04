@@ -117,7 +117,7 @@ impl Filter for MessageCreateFilter {
 
                 // Check channel_name
                 if let Some(searched_channel_name) = self.channel_name.as_ref() {
-                    if let Some(channels) = context.guild_map.get(&msg.guild_id.clone().unwrap()).unwrap().channels.as_ref() {
+                    if let Some(channels) = context.guild_map.get(&msg.guild_id).unwrap().channels.as_ref() {
                         for channel in channels {
                             if channel.id == msg.channel_id {
                                 if let Some(channel_name) = channel.name.as_ref() {
@@ -157,15 +157,10 @@ impl Filter for MessageReactionFilter {
 
                 // Check channel_name
                 if let Some(searched_channel_name) = self.channel_name.as_ref() {
-                    if let Some(channels) = context.guild_map.get(&react.guild_id).unwrap().channels.as_ref() {
-                        for channel in channels {
-                            if channel.id == react.channel_id {
-                                if let Some(channel_name) = channel.name.as_ref() {
-                                    if !regex_match(&searched_channel_name, channel_name) {
-                                        return false
-                                    }
-                                }
-                                break
+                    if let Some(channel) = context.get_channel(&react.guild_id, &react.channel_id) {
+                        if let Some(channel_name) = channel.name.as_ref() {
+                            if !regex_match(&searched_channel_name, channel_name) {
+                                return false
                             }
                         }
                     }
@@ -181,7 +176,9 @@ impl Filter for MessageReactionFilter {
 
                 if let Some(react_str) = &self.react {
                     if !regex_match(&react_str, &react.emoji.name) {
-                        return false
+                        if *react_str != react.emoji.name {
+                            return false
+                        }
                     }
                 }
 
@@ -194,15 +191,10 @@ impl Filter for MessageReactionFilter {
 
                 // Check channel_name
                 if let Some(searched_channel_name) = self.channel_name.as_ref() {
-                    if let Some(channels) = context.guild_map.get(&react.guild_id).unwrap().channels.as_ref() {
-                        for channel in channels {
-                            if channel.id == react.channel_id {
-                                if let Some(channel_name) = channel.name.as_ref() {
-                                    if !regex_match(&searched_channel_name, channel_name) {
-                                        return false
-                                    }
-                                }
-                                break
+                    if let Some(channel) = context.get_channel(&react.guild_id, &react.channel_id) {
+                        if let Some(channel_name) = channel.name.as_ref() {
+                            if !regex_match(&searched_channel_name, channel_name) {
+                                return false
                             }
                         }
                     }
@@ -224,5 +216,15 @@ impl Filter for MessageReactionFilter {
             }
             _ => false
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::regex_match;
+
+    #[test]
+    fn regex_match_emoji() {
+        assert!(regex_match(&"2️⃣".into(), &"2️⃣".into()));
     }
 }

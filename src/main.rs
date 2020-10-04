@@ -34,6 +34,31 @@ pub struct DiscordContext {
     /// The discord http client
     pub http_client: http::HttpClient
 }
+impl DiscordContext {
+    pub fn get_guild(&self, guild_id: &String) -> Option<&discord::Guild> {
+        self.guild_map.get(guild_id)
+    }
+    pub fn get_channel(&self, guild_id: &String, channel_id: &String) -> Option<&discord::Channel> {
+        if let Some(guild) = self.get_guild(guild_id) {
+            match &guild.channels {
+                Some(channels) => {
+                    for channel in channels {
+                        if channel.id == *channel_id {
+                            return Some(channel)
+                        }
+                    }
+                    warn!("[guild_id: {}] Could not find channel id '{}'", guild_id, channel_id);
+                    return None
+                },
+                None => {
+                    warn!("[guild_id: {}] When getting channel id '{}', channels was not populated", guild_id, channel_id);
+                    return None
+                }
+            }
+        }
+        None
+    }
+}
 
 #[tokio::main]
 async fn main() {

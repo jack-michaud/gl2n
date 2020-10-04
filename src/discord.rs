@@ -117,7 +117,7 @@ pub struct Attachment {
 pub struct Message {
     pub id: String,
     pub channel_id: String,
-    pub guild_id: Option<String>,
+    pub guild_id: String,
     pub author: User,
     //member: GuildMember,
     pub content: String,

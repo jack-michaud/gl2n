@@ -114,8 +114,10 @@ impl RunAction for WebhookData {
 #[cfg(test)]
 mod test {
     use super::*;
-    use super::super::rules::*;
-    use super::super::actions::*;
+    use crate::controller::rules::*;
+    use crate::controller::actions::*;
+    use crate::controller::*;
+    use crate::gateway;
     use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 
     #[test]
